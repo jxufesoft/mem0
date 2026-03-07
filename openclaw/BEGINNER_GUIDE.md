@@ -453,10 +453,11 @@ ADMIN_SECRET_KEY=your_admin_secret_key_here
 
 ```bash
 # 创建数据目录
-sudo mkdir -p /opt/mem0-data/{postgres,neo4j/data,neo4j/logs,neo4j/import,redis,history}
+mkdir -p ~/mem0-data/{postgres,neo4j/data,neo4j/logs,neo4j/import,redis,history}
 
 # 设置权限
-sudo chown -R 1000:1000 /opt/mem0-data/
+# 确保目录权限正确
+chmod -R 755 ~/mem0-data/
 ```
 
 #### 6.2.5 启动服务
@@ -1502,7 +1503,7 @@ openclaw logs --tail 100 --plugin @mem0/openclaw-mem0
 | Plugin 目录 | `~/.openclaw/plugins/@mem0/openclaw-mem0/` | Plugin 文件 |
 | L0 文件 | `./memory.md` | 持久记忆 |
 | L1 目录 | `./memory/` | 结构化记忆 |
-| Server 数据 | `/opt/mem0-data/` | Server 数据 |
+| Server 数据 | `~/mem0-data/` | Server 数据 |
 
 ### 12.5 命令速查
 

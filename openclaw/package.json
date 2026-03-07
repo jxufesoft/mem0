@@ -1,20 +1,54 @@
 {
   "name": "@mem0/openclaw-mem0",
-  "version": "0.1.2",
+  "version": "2.0.0",
   "type": "module",
-  "description": "Mem0 memory backend for OpenClaw — platform or self-hosted open-source",
+  "description": "三层分层记忆 for OpenClaw: L0(memory.md) + L1(日期/分类文件) + L2(Mem0 Server/OSS/Platform)",
   "license": "Apache-2.0",
   "keywords": [
     "openclaw",
     "plugin",
     "memory",
     "mem0",
-    "long-term-memory"
+    "long-term-memory",
+    "three-tier-memory",
+    "vector-search"
   ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"*.ts\" \"lib/**/*.ts\"",
+    "format": "prettier --write \"*.ts\" \"lib/**/*.ts\"",
+    "test": "bash test_plugin_comprehensive.sh",
+    "test:performance": "bash test_performance.sh"
+  },
   "dependencies": {
     "@sinclair/typebox": "0.34.47",
-    "mem0ai": "^2.2.1"
+    "mem0ai": "^2.2.1",
+    "axios": "^1.7.9",
+    "axios-retry": "^4.5.0"
   },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  },
+  "files": [
+    "index.ts",
+    "lib/",
+    "docs/",
+    "*.json",
+    "README.md",
+    "CHANGELOG.md",
+    "INSTALLATION_GUIDE.md",
+    "DEPLOYMENT_GUIDE.md",
+    "BEGINNER_GUIDE.md",
+    "PACKAGE_REPORT.md",
+    "TEST_REPORT.md",
+    "TEST_SUMMARY.md",
+    "INSTALLATION_VERIFICATION.md",
+    "PLUGIN_FIXES_SUMMARY.md",
+    "DOCS_SUMMARY.md",
+    "test_plugin_comprehensive.sh",
+    "test_performance.sh"
+  ],
   "openclaw": {
     "extensions": [
       "./index.ts"

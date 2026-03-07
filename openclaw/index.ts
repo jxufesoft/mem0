@@ -1,27 +1,32 @@
 /**
  * OpenClaw Memory (Mem0) Plugin
  *
- * Long-term memory via Mem0 — supports both the Mem0 platform
- * and the open-source self-hosted SDK. Uses the official `mem0ai` package.
+ * Long-term memory via Mem0 — supports the Mem0 platform,
+ * the open-source self-hosted SDK, and the enhanced Mem0 Server.
+ * Uses the official `mem0ai` package.
  *
  * Features:
- * - 5 tools: memory_search, memory_list, memory_store, memory_get, memory_forget
- *   (with session/long-term scope support via scope and longTerm parameters)
+ * - 7 tools: memory_search, memory_list, memory_store, memory_get, memory_forget,
+ *   memory_l0_update, memory_l1_write
  * - Short-term (session-scoped) and long-term (user-scoped) memory
  * - Auto-recall: injects relevant memories (both scopes) before each agent turn
  * - Auto-capture: stores key facts scoped to the current session after each agent turn
  * - CLI: openclaw mem0 search, openclaw mem0 stats
- * - Dual mode: platform or open-source (self-hosted)
+ * - Triple mode: platform, open-source (self-hosted), or server (enhanced)
+ * - Three-tier memory: L0 (memory.md) + L1 (date/category files) + L2 (vector search)
  */
 
 import { Type } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { ServerClient } from "./lib/server-client.js";
+import { L0Manager } from "./lib/l0-manager.js";
+import { L1Manager } from "./lib/l1-manager.js";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-type Mem0Mode = "platform" | "open-source";
+type Mem0Mode = "platform" | "open-source" | "server";
 
 type Mem0Config = {
   mode: Mem0Mode;
@@ -40,6 +45,19 @@ type Mem0Config = {
     llm?: { provider: string; config: Record<string, unknown> };
     historyDbPath?: string;
   };
+  // Server-specific
+  serverUrl?: string;
+  serverApiKey?: string;
+  agentId?: string;
+  // L0 Layer (memory.md)
+  l0Enabled?: boolean;
+  l0Path?: string;
+  // L1 Layer (date/category files)
+  l1Enabled?: boolean;
+  l1Dir?: string;
+  l1RecentDays?: number;
+  l1Categories?: string[];
+  l1AutoWrite?: boolean;
   // Shared
   userId: string;
   autoCapture: boolean;
@@ -136,9 +154,9 @@ class PlatformProvider implements Mem0Provider {
 
   private async _init(): Promise<void> {
     const { default: MemoryClient } = await import("mem0ai");
-    const opts: Record<string, string> = { apiKey: this.apiKey };
-    if (this.orgId) opts.org_id = this.orgId;
-    if (this.projectId) opts.project_id = this.projectId;
+    const opts: { apiKey: string; organizationId?: string | null; projectId?: string | null } = { apiKey: this.apiKey };
+    if (this.orgId) opts.organizationId = this.orgId;
+    if (this.projectId) opts.projectId = this.projectId;
     this.client = new MemoryClient(opts);
   }
 
@@ -303,6 +321,66 @@ class OSSProvider implements Mem0Provider {
   async delete(memoryId: string): Promise<void> {
     await this.ensureMemory();
     await this.memory.delete(memoryId);
+  }
+}
+
+// ============================================================================
+// Server Provider (Enhanced Mem0 Server)
+// ============================================================================
+
+class ServerProvider implements Mem0Provider {
+  private client: ServerClient;
+
+  constructor(
+    serverUrl: string,
+    apiKey: string,
+    private readonly agentId?: string,
+  ) {
+    this.client = new ServerClient({ serverUrl, apiKey });
+  }
+
+  async add(
+    messages: Array<{ role: string; content: string }>,
+    options: AddOptions,
+  ): Promise<AddResult> {
+    const result = await this.client.add(messages, {
+      user_id: options.user_id,
+      run_id: options.run_id,
+      agent_id: this.agentId,
+    });
+    return result;
+  }
+
+  async search(query: string, options: SearchOptions): Promise<MemoryItem[]> {
+    const results = await this.client.search({
+      query,
+      user_id: options.user_id,
+      run_id: options.run_id,
+      agent_id: this.agentId,
+      limit: options.limit ?? options.top_k,
+    });
+
+    // Filter by threshold if specified
+    if (options.threshold != null) {
+      return results.filter(item => (item.score ?? 0) >= options.threshold!);
+    }
+    return results;
+  }
+
+  async get(memoryId: string): Promise<MemoryItem> {
+    return await this.client.get(memoryId, this.agentId);
+  }
+
+  async getAll(options: ListOptions): Promise<MemoryItem[]> {
+    return await this.client.list({
+      user_id: options.user_id,
+      run_id: options.run_id,
+      agent_id: this.agentId,
+    });
+  }
+
+  async delete(memoryId: string): Promise<void> {
+    await this.client.forget(memoryId, this.agentId);
   }
 }
 
@@ -503,6 +581,19 @@ const ALLOWED_KEYS = [
   "searchThreshold",
   "topK",
   "oss",
+  // Server mode
+  "serverUrl",
+  "serverApiKey",
+  "agentId",
+  // L0 layer
+  "l0Enabled",
+  "l0Path",
+  // L1 layer
+  "l1Enabled",
+  "l1Dir",
+  "l1RecentDays",
+  "l1Categories",
+  "l1AutoWrite",
 ];
 
 function assertAllowedKeys(
@@ -523,15 +614,38 @@ const mem0ConfigSchema = {
     const cfg = value as Record<string, unknown>;
     assertAllowedKeys(cfg, ALLOWED_KEYS, "openclaw-mem0 config");
 
-    // Accept both "open-source" and legacy "oss" as open-source mode; everything else is platform
-    const mode: Mem0Mode =
-      cfg.mode === "oss" || cfg.mode === "open-source" ? "open-source" : "platform";
+    // Determine mode: server, open-source, or platform
+    let mode: Mem0Mode;
+    if (cfg.mode === "server") {
+      mode = "server";
+    } else if (cfg.mode === "oss" || cfg.mode === "open-source") {
+      mode = "open-source";
+    } else if (cfg.mode === "platform") {
+      mode = "platform";
+    } else {
+      // Default to platform for backward compatibility
+      mode = cfg.mode as Mem0Mode || "platform";
+    }
+
+    // Server mode requires serverUrl and serverApiKey
+    if (mode === "server") {
+      if (typeof cfg.serverUrl !== "string" || !cfg.serverUrl) {
+        throw new Error(
+          "serverUrl is required for server mode",
+        );
+      }
+      if (typeof cfg.serverApiKey !== "string" || !cfg.serverApiKey) {
+        throw new Error(
+          "serverApiKey is required for server mode",
+        );
+      }
+    }
 
     // Platform mode requires apiKey
     if (mode === "platform") {
       if (typeof cfg.apiKey !== "string" || !cfg.apiKey) {
         throw new Error(
-          "apiKey is required for platform mode (set mode: \"open-source\" for self-hosted)",
+          "apiKey is required for platform mode (set mode: \"open-source\" for self-hosted or \"server\" for enhanced server)",
         );
       }
     }
@@ -570,9 +684,22 @@ const mem0ConfigSchema = {
           : DEFAULT_CUSTOM_INSTRUCTIONS,
       enableGraph: cfg.enableGraph === true,
       searchThreshold:
-        typeof cfg.searchThreshold === "number" ? cfg.searchThreshold : 0.5,
+        typeof cfg.searchThreshold === "number" ? cfg.searchThreshold : 0.3,
       topK: typeof cfg.topK === "number" ? cfg.topK : 5,
       oss: ossConfig,
+      // Server mode config
+      serverUrl: typeof cfg.serverUrl === "string" ? resolveEnvVars(cfg.serverUrl) : undefined,
+      serverApiKey: typeof cfg.serverApiKey === "string" ? resolveEnvVars(cfg.serverApiKey) : undefined,
+      agentId: typeof cfg.agentId === "string" ? cfg.agentId : "openclaw-default",
+      // L0 config
+      l0Enabled: cfg.l0Enabled === true,
+      l0Path: typeof cfg.l0Path === "string" ? cfg.l0Path : "memory.md",
+      // L1 config
+      l1Enabled: cfg.l1Enabled === true,
+      l1Dir: typeof cfg.l1Dir === "string" ? cfg.l1Dir : "memory",
+      l1RecentDays: typeof cfg.l1RecentDays === "number" ? cfg.l1RecentDays : 7,
+      l1Categories: Array.isArray(cfg.l1Categories) ? cfg.l1Categories as string[] : ["projects", "contacts", "tasks"],
+      l1AutoWrite: cfg.l1AutoWrite === true,
     };
   },
 };
@@ -585,6 +712,10 @@ function createProvider(
   cfg: Mem0Config,
   api: OpenClawPluginApi,
 ): Mem0Provider {
+  if (cfg.mode === "server") {
+    return new ServerProvider(cfg.serverUrl!, cfg.serverApiKey!, cfg.agentId);
+  }
+
   if (cfg.mode === "open-source") {
     return new OSSProvider(cfg.oss, cfg.customPrompt, (p) =>
       api.resolvePath(p),
@@ -592,6 +723,29 @@ function createProvider(
   }
 
   return new PlatformProvider(cfg.apiKey!, cfg.orgId, cfg.projectId);
+}
+
+// ============================================================================
+// L0/L1 Manager Factory
+// ============================================================================
+
+function createL0Manager(cfg: Mem0Config, api: OpenClawPluginApi): L0Manager | null {
+  if (!cfg.l0Enabled) return null;
+  return new L0Manager({
+    enabled: true,
+    path: api.resolvePath(cfg.l0Path || "memory.md"),
+  });
+}
+
+function createL1Manager(cfg: Mem0Config, api: OpenClawPluginApi): L1Manager | null {
+  if (!cfg.l1Enabled) return null;
+  return new L1Manager({
+    enabled: true,
+    dir: api.resolvePath(cfg.l1Dir || "memory"),
+    recentDays: cfg.l1RecentDays || 7,
+    categories: cfg.l1Categories || ["projects", "contacts", "tasks"],
+    autoWrite: cfg.l1AutoWrite || false,
+  });
 }
 
 // ============================================================================
@@ -613,7 +767,7 @@ const memoryPlugin = {
   id: "openclaw-mem0",
   name: "Memory (Mem0)",
   description:
-    "Mem0 memory backend — Mem0 platform or self-hosted open-source",
+    "Mem0 memory backend — Mem0 platform, self-hosted open-source, or enhanced server with three-tier memory",
   kind: "memory" as const,
   configSchema: mem0ConfigSchema,
 
@@ -621,11 +775,15 @@ const memoryPlugin = {
     const cfg = mem0ConfigSchema.parse(api.pluginConfig);
     const provider = createProvider(cfg, api);
 
+    // Create L0/L1 managers
+    const l0Manager = createL0Manager(cfg, api);
+    const l1Manager = createL1Manager(cfg, api);
+
     // Track current session ID for tool-level session scoping
     let currentSessionId: string | undefined;
 
     api.logger.info(
-      `openclaw-mem0: registered (mode: ${cfg.mode}, user: ${cfg.userId}, graph: ${cfg.enableGraph}, autoRecall: ${cfg.autoRecall}, autoCapture: ${cfg.autoCapture})`,
+      `openclaw-mem0: registered (mode: ${cfg.mode}, user: ${cfg.userId}, agent: ${cfg.agentId || 'N/A'}, L0: ${cfg.l0Enabled}, L1: ${cfg.l1Enabled}, autoRecall: ${cfg.autoRecall}, autoCapture: ${cfg.autoCapture})`,
     );
 
     // Helper: build add options
@@ -1249,7 +1407,26 @@ const memoryPlugin = {
         if (sessionId) currentSessionId = sessionId;
 
         try {
-          // Search long-term memories (user-scoped)
+          // Collect memory from all layers
+          const contextParts: string[] = [];
+
+          // L0: Read from memory.md
+          if (l0Manager) {
+            const l0Content = await l0Manager.toSystemBlock();
+            if (l0Content) {
+              contextParts.push(l0Content);
+            }
+          }
+
+          // L1: Read from date/category files
+          if (l1Manager) {
+            const l1Content = await l1Manager.toSystemBlock();
+            if (l1Content) {
+              contextParts.push(l1Content);
+            }
+          }
+
+          // L2: Search long-term memories (user-scoped)
           const longTermResults = await provider.search(
             event.prompt,
             buildSearchOptions(),
@@ -1270,33 +1447,37 @@ const memoryPlugin = {
             (r) => !longTermIds.has(r.id),
           );
 
-          if (longTermResults.length === 0 && uniqueSessionResults.length === 0) return;
+          // Build L2 context with clear labels
+          if (longTermResults.length > 0 || uniqueSessionResults.length > 0) {
+            let l2Context = "<!-- L2: Vector Memory -->\n";
+            if (longTermResults.length > 0) {
+              l2Context += longTermResults
+                .map(
+                  (r) =>
+                    `- ${r.memory}${r.categories?.length ? ` [${r.categories.join(", ")}]` : ""}`,
+                )
+                .join("\n");
+            }
+            if (uniqueSessionResults.length > 0) {
+              if (longTermResults.length > 0) l2Context += "\n";
+              l2Context += "\nSession memories:\n";
+              l2Context += uniqueSessionResults
+                .map((r) => `- ${r.memory}`)
+                .join("\n");
+            }
+            l2Context += "\n<!-- End L2 -->";
+            contextParts.push(l2Context);
+          }
 
-          // Build context with clear labels
-          let memoryContext = "";
-          if (longTermResults.length > 0) {
-            memoryContext += longTermResults
-              .map(
-                (r) =>
-                  `- ${r.memory}${r.categories?.length ? ` [${r.categories.join(", ")}]` : ""}`,
-              )
-              .join("\n");
-          }
-          if (uniqueSessionResults.length > 0) {
-            if (memoryContext) memoryContext += "\n";
-            memoryContext += "\nSession memories:\n";
-            memoryContext += uniqueSessionResults
-              .map((r) => `- ${r.memory}`)
-              .join("\n");
-          }
+          if (contextParts.length === 0) return;
 
           const totalCount = longTermResults.length + uniqueSessionResults.length;
           api.logger.info(
-            `openclaw-mem0: injecting ${totalCount} memories into context (${longTermResults.length} long-term, ${uniqueSessionResults.length} session)`,
+            `openclaw-mem0: injecting memories (L0: ${l0Manager ? 'yes' : 'no'}, L1: ${l1Manager ? 'yes' : 'no'}, L2: ${totalCount})`,
           );
 
           return {
-            prependContext: `<relevant-memories>\nThe following memories may be relevant to this conversation:\n${memoryContext}\n</relevant-memories>`,
+            prependContext: `<relevant-memories>\nThe following memories may be relevant to this conversation:\n${contextParts.join("\n\n")}\n</relevant-memories>`,
           };
         } catch (err) {
           api.logger.warn(`openclaw-mem0: recall failed: ${String(err)}`);
@@ -1376,6 +1557,17 @@ const memoryPlugin = {
             api.logger.info(
               `openclaw-mem0: auto-captured ${capturedCount} memories`,
             );
+
+            // L1 auto-write: analyze and write to category files
+            if (l1Manager && l1Manager.isAutoWriteEnabled()) {
+              const conversationText = formattedMessages.map(m => m.content).join(" ");
+              const decision = await l1Manager.writeFromConversation(conversationText);
+              if (decision.shouldWrite) {
+                api.logger.info(
+                  `openclaw-mem0: L1 auto-wrote to ${decision.categories.length} categories`,
+                );
+              }
+            }
           }
         } catch (err) {
           api.logger.warn(`openclaw-mem0: capture failed: ${String(err)}`);
@@ -1391,7 +1583,7 @@ const memoryPlugin = {
       id: "openclaw-mem0",
       start: () => {
         api.logger.info(
-          `openclaw-mem0: initialized (mode: ${cfg.mode}, user: ${cfg.userId}, autoRecall: ${cfg.autoRecall}, autoCapture: ${cfg.autoCapture})`,
+          `openclaw-mem0: initialized (mode: ${cfg.mode}, user: ${cfg.userId}, L0: ${cfg.l0Enabled}, L1: ${cfg.l1Enabled}, autoRecall: ${cfg.autoRecall}, autoCapture: ${cfg.autoCapture})`,
         );
       },
       stop: () => {

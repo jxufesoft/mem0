@@ -1,0 +1,75 @@
+version: "3.9"
+
+networks:
+  mem0net:
+    name: mem0net
+    driver: bridge
+
+services:
+  mem0-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mem0-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mem0db}
+      POSTGRES_USER: ${POSTGRES_USER:-mem0user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mem0pass}
+    volumes:
+      - /opt/mem0-data/postgres:/var/lib/postgresql/data:z
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro,z
+    networks: [mem0net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mem0user} -d ${POSTGRES_DB:-mem0db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mem0-neo4j:
+    image: neo4j:5.26-community
+    container_name: mem0-neo4j
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: "${NEO4J_USERNAME:-neo4j}/${NEO4J_PASSWORD:-mem0graph}"
+      NEO4J_dbms_memory_heap_initial__size: 256m
+      NEO4J_dbms_memory_heap_max__size: 1G
+    volumes:
+      - /opt/mem0-data/neo4j/data:/data:z
+      - /opt/mem0-data/neo4j/logs:/logs:z
+      - /opt/mem0-data/neo4j/import:/import:z
+    networks: [mem0net]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7474 || exit 1"]
+      interval: 15s
+      retries: 5
+
+  mem0-redis:
+    image: redis:7-alpine
+    container_name: mem0-redis
+    restart: unless-stopped
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-mem0redis}
+    command: sh -c "redis-server --requirepass $$REDIS_PASSWORD --maxmemory 512mb --maxmemory-policy allkeys-lru"
+    volumes:
+      - /opt/mem0-data/redis:/data:z
+    networks: [mem0net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-mem0redis}", "ping"]
+      interval: 10s
+      retries: 3
+
+  mem0-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mem0-server
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - /opt/mem0-data/history:/app/history:z
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      mem0-postgres: { condition: service_healthy }
+      mem0-neo4j: { condition: service_healthy }
+      mem0-redis: { condition: service_healthy }
+    networks: [mem0net]

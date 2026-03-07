@@ -4,13 +4,29 @@
   "uiHints": {
     "mode": {
       "label": "Mode",
-      "help": "\"platform\" for Mem0 cloud, \"open-source\" for self-hosted"
+      "help": "\"platform\" for Mem0 cloud, \"open-source\" for self-hosted, \"server\" for enhanced Mem0 Server"
     },
     "apiKey": {
       "label": "Mem0 API Key",
       "sensitive": true,
       "placeholder": "m0-...",
       "help": "API key from app.mem0.ai (or use ${MEM0_API_KEY}). Only needed for platform mode."
+    },
+    "serverUrl": {
+      "label": "Server URL",
+      "placeholder": "http://localhost:8000",
+      "help": "URL of Mem0 Enhanced Server. Only needed for server mode."
+    },
+    "serverApiKey": {
+      "label": "Server API Key",
+      "sensitive": true,
+      "placeholder": "mem0_...",
+      "help": "API key for Mem0 Enhanced Server. Only needed for server mode."
+    },
+    "agentId": {
+      "label": "Agent ID",
+      "placeholder": "openclaw-default",
+      "help": "Agent ID for collection isolation. Used in server mode."
     },
     "userId": {
       "label": "Default User ID",
@@ -64,6 +80,41 @@
       "placeholder": "5",
       "help": "Maximum number of memories to retrieve"
     },
+    "l0Enabled": {
+      "label": "Enable L0 Memory (Three-Tier)",
+      "help": "Enable L0 layer for fast access to critical user facts via memory.md"
+    },
+    "l0Path": {
+      "label": "L0 Memory Path",
+      "placeholder": "memory.md",
+      "advanced": true,
+      "help": "Path to the L0 memory.md file"
+    },
+    "l1Enabled": {
+      "label": "Enable L1 Memory (Three-Tier)",
+      "help": "Enable L1 layer for date/category file organization"
+    },
+    "l1Dir": {
+      "label": "L1 Directory",
+      "placeholder": "memory",
+      "advanced": true,
+      "help": "Directory for L1 date and category files"
+    },
+    "l1RecentDays": {
+      "label": "L1 Recent Days",
+      "placeholder": "7",
+      "advanced": true,
+      "help": "Number of recent days of L1 date files to load"
+    },
+    "l1Categories": {
+      "label": "L1 Categories",
+      "advanced": true,
+      "help": "Category file names for L1 layer"
+    },
+    "l1AutoWrite": {
+      "label": "L1 Auto-Write",
+      "help": "Automatically write conversation summaries to L1 files"
+    },
     "oss": {
       "label": "Open-Source Configuration",
       "advanced": true,
@@ -79,10 +130,19 @@
         "enum": [
           "platform",
           "open-source",
-          "oss"
+          "server"
         ]
       },
       "apiKey": {
+        "type": "string"
+      },
+      "serverUrl": {
+        "type": "string"
+      },
+      "serverApiKey": {
+        "type": "string"
+      },
+      "agentId": {
         "type": "string"
       },
       "userId": {
@@ -120,6 +180,30 @@
       },
       "topK": {
         "type": "number"
+      },
+      "l0Enabled": {
+        "type": "boolean"
+      },
+      "l0Path": {
+        "type": "string"
+      },
+      "l1Enabled": {
+        "type": "boolean"
+      },
+      "l1Dir": {
+        "type": "string"
+      },
+      "l1RecentDays": {
+        "type": "number"
+      },
+      "l1Categories": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "l1AutoWrite": {
+        "type": "boolean"
       },
       "oss": {
         "type": "object",

@@ -8,6 +8,13 @@ All notable changes to the Mem0 OpenClaw Plugin.
 
 Mem0 Plugin v2.0.0 is a complete rewrite with three-tier memory architecture, server mode support, and comprehensive testing. All 23 tests passed with 100% pass rate and excellent performance ratings.
 
+### Deployment Updates (2026-03-07 14:00)
+- **Data Directory** - Changed from `/opt/mem0-data` to `/home/yhz/mem0-data`
+- **External Access** - Server binds to `0.0.0.0:8000` for LAN/external access
+- **PostgreSQL Connection** - Changed from hardcoded IP to container name (`mem0-postgres`)
+- **Container Cleanup** - Removed duplicate `mem0-api` container (port 8888)
+- **Documentation** - Updated all docs with new deployment configuration
+
 ### Critical Fix (2026-03-07 04:30)
 - **Server Mode Implementation** - Added full ServerProvider class to index.ts
 - **L0/L1 Integration** - Integrated L0Manager and L1Manager into main plugin

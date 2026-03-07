@@ -2,9 +2,9 @@
 
 ## 版本信息
 
-- **文档版本**: 1.0.0
+- **文档版本**: 2.0.0
 - **最后更新**: 2026-03-07
-- **Server 版本**: 2.0.0
+- **Server 版本**: 2.0.0 (Enhanced)
 
 ---
 
@@ -14,9 +14,10 @@
 2. [快速开始](#快速开始)
 3. [Docker 部署](#docker-部署)
 4. [生产部署](#生产部署)
-5. [配置管理](#配置管理)
-6. [监控运维](#监控运维)
-7. [故障排查](#故障排查)
+5. [数据持久化](#数据持久化)
+6. [外部访问配置](#外部访问配置)
+7. [监控运维](#监控运维)
+8. [故障排查](#故障排查)
 
 ---
 
@@ -26,23 +27,24 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                   负载均衡层 (可选)                          │
-│                    Nginx / HAProxy                         │
+│                   外部访问 (0.0.0.0:8000)                      │
 └────────────────────────┬────────────────────────────────────────┘
                      │
         ┌────────────┴────────────┐
         │                     │
         ▼                     ▼
 ┌─────────────────┐   ┌─────────────────┐
-│ Server 实例 1   │   │ Server 实例 2   │
-│ (FastAPI)      │   │ (FastAPI)      │
-└────┬────┬─────┘   └────┬────┬─────┘
-     │    │               │    │
-     │    └───────────────┘    │
-     ▼                          ▼
+│ mem0-server     │   │ mem0-redis      │
+│ (FastAPI)      │   │ (速率限制)       │
+│ 0.0.0.0:8000   │   │ 6379            │
+└────┬────┬─────┘   └─────────────────┘
+     │    │
+     │    └────────────────┐
+     ▼                     ▼
 ┌─────────────────┐   ┌─────────────────┐
-│  PostgreSQL    │   │  PostgreSQL    │
-│  + pgvector   │   │  + pgvector   │
+│ mem0-postgres   │   │ mem0-neo4j      │
+│ + pgvector     │   │ (图存储)         │
+│ 5432           │   │ 7687            │
 └─────────────────┘   └─────────────────┘
 ```
 
@@ -50,7 +52,7 @@
 
 | 方式 | 适用场景 | 复杂度 |
 |------|-----------|---------|
-| **Docker Compose** | 开发、测试、小规模生产 | 低 |
+| **Docker Compose** | 开发、测试、生产 | 低 |
 | **Kubernetes** | 大规模生产、高可用 | 中高 |
 | **传统部署** | 有特定环境要求 | 中 |
 
@@ -84,61 +86,38 @@ cp .env.example .env
 nano .env
 ```
 
+**重要配置项**:
+```bash
+# PostgreSQL - 使用容器名而非 IP
+POSTGRES_HOST=mem0-postgres
+
+# 端口绑定 - 0.0.0.0 支持外部访问
+# 在 docker-compose.prod.yaml 中配置
+```
+
 ### 2.4 启动服务
 
 ```bash
 # 构建并启动所有服务
-docker-compose up -d
+docker compose -f docker-compose.prod.yaml up -d --build
 
 # 查看日志
-docker-compose logs -f
+docker compose -f docker-compose.prod.yaml logs -f
 
-# 检查健康状态
+# 检查健康状态 (本地)
 curl http://localhost:8000/health
+
+# 检查健康状态 (外部)
+curl http://YOUR_SERVER_IP:8000/health
 ```
 
 ---
 
 ## Docker 部署
 
-### 3.1 Dockerfile
-
-```dockerfile
-FROM python:3.12-slim
-
-# 设置工作目录
-WORKDIR /app
-
-# 安装系统依赖
-RUN apt-get update && apt-get install -y \
-    gcc \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# 复制依赖文件
-COPY requirements.txt .
-
-# 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt
-
-# 复制应用代码
-COPY . .
-
-# 创建历史目录
-RUN mkdir -p /app/history
-
-# 暴露端口
-EXPOSE 8000
-
-# 启动命令
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-### 3.2 docker-compose.prod.yaml
+### 3.1 生产配置 (docker-compose.prod.yaml)
 
 ```yaml
-version: "3.9"
-
 networks:
   mem0net:
     name: mem0net
@@ -148,6 +127,180 @@ services:
   mem0-postgres:
     image: pgvector/pgvector:pg16
     container_name: mem0-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mem0db}
+      POSTGRES_USER: ${POSTGRES_USER:-mem0user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mem0pass}
+    volumes:
+      - /home/yhz/mem0-data/postgres:/var/lib/postgresql/data:z
+    networks: [mem0net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mem0user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mem0-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mem0-server
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - /home/yhz/mem0-data/history:/app/history:z
+    ports:
+      - "0.0.0.0:8000:8000"  # 绑定到所有网卡
+    depends_on:
+      mem0-postgres: { condition: service_healthy }
+    networks: [mem0net]
+```
+
+---
+
+## 数据持久化
+
+### 4.1 数据目录结构
+
+所有数据保存在 `/home/yhz/mem0-data/`:
+
+```
+/home/yhz/mem0-data/
+├── postgres/     # 向量数据 (pgvector)
+├── neo4j/        # 图数据库
+│   ├── data/
+│   ├── logs/
+│   └── import/
+├── redis/        # 缓存/速率限制
+└── history/      # API Keys, 历史记录
+```
+
+### 4.2 容器卷映射
+
+| 容器 | 宿主机路径 | 容器路径 | 内容 |
+|------|-----------|----------|------|
+| mem0-postgres | `/home/yhz/mem0-data/postgres` | `/var/lib/postgresql/data` | 向量数据 |
+| mem0-neo4j | `/home/yhz/mem0-data/neo4j/data` | `/data` | 图数据库 |
+| mem0-redis | `/home/yhz/mem0-data/redis` | `/data` | 缓存 |
+| mem0-server | `/home/yhz/mem0-data/history` | `/app/history` | API Keys |
+
+### 4.3 数据备份
+
+```bash
+# 备份 PostgreSQL
+docker exec mem0-postgres pg_dump -U postgres mem0db > backup_$(date +%Y%m%d).sql
+
+# 备份所有数据目录
+tar -czvf mem0-data-backup-$(date +%Y%m%d).tar.gz /home/yhz/mem0-data/
+```
+
+---
+
+## 外部访问配置
+
+### 5.1 端口绑定
+
+服务器绑定到 `0.0.0.0:8000`，支持局域网和外部访问:
+
+```yaml
+ports:
+  - "0.0.0.0:8000:8000"
+```
+
+### 5.2 防火墙配置
+
+```bash
+# 开放 8000 端口
+sudo firewall-cmd --add-port=8000/tcp --permanent
+sudo firewall-cmd --reload
+
+# 验证端口开放
+sudo firewall-cmd --list-ports
+```
+
+### 5.3 访问测试
+
+```bash
+# 本地访问
+curl http://localhost:8000/health
+
+# 局域网访问
+curl http://192.168.x.x:8000/health
+
+# API 文档
+http://YOUR_SERVER_IP:8000/docs
+```
+
+---
+
+## 监控运维
+
+### 6.1 健康检查
+
+```bash
+# 查看所有容器状态
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+# 健康检查端点
+curl http://localhost:8000/health
+# 返回: {"status":"healthy","loaded_agents":0,"redis":"ok"}
+```
+
+### 6.2 日志查看
+
+```bash
+# 查看服务器日志
+docker logs mem0-server -f --tail 100
+
+# 查看所有服务日志
+docker compose -f docker-compose.prod.yaml logs -f
+```
+
+### 6.3 资源监控
+
+```bash
+# 查看容器资源使用
+docker stats mem0-server mem0-postgres mem0-redis mem0-neo4j
+```
+
+---
+
+## 故障排查
+
+### 7.1 常见问题
+
+**PostgreSQL 连接失败**
+```bash
+# 检查容器状态
+docker ps | grep postgres
+
+# 检查连接配置
+# 确保 POSTGRES_HOST=mem0-postgres (使用容器名)
+```
+
+**服务 unhealthy**
+```bash
+# 查看日志
+docker logs mem0-server --tail 50
+
+# 重启服务
+docker compose -f docker-compose.prod.yaml restart mem0-server
+```
+
+**外部无法访问**
+```bash
+# 检查端口绑定
+docker port mem0-server
+
+# 检查防火墙
+sudo firewall-cmd --list-ports
+```
+
+---
+
+**文档版本**: 2.0
+**最后更新**: 2026-03-07
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-mem0db}

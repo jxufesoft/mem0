@@ -14,6 +14,8 @@
 - ⚡ **高性能** - 15ms 健康检查, 82ms 搜索, 365 req/s 并发
 - 🛠️ **7 个 Agent 工具** - 完整的 CRUD 操作和 L0/L1 管理
 - 🔌 **OpenClaw 集成** - 自动召回和捕获钩子
+- 🌐 **外部访问支持** - Server 绑定 0.0.0.0，支持局域网和远程访问
+- 💾 **数据持久化** - 所有数据保存到宿主机映射目录
 
 ## 📊 性能指标
 
@@ -64,6 +66,9 @@ openclaw config set plugins.entries.openclaw-mem0.config.serverUrl http://localh
 openclaw config set plugins.entries.openclaw-mem0.config.serverApiKey your-api-key
 openclaw config set plugins.entries.openclaw-mem0.config.agentId openclaw-main
 ```
+
+> **注意**: Mem0 Server 默认绑定到 `0.0.0.0:8000`，可以从局域网或外部访问。
+> 本地访问使用 `http://localhost:8000`，远程访问使用 `http://YOUR_SERVER_IP:8000`。
 
 **OSS 模式**
 ```bash

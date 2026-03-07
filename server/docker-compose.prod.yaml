@@ -67,7 +67,7 @@ services:
     volumes:
       - /opt/mem0-data/history:/app/history:z
     ports:
-      - "127.0.0.1:8000:8000"
+      - "0.0.0.0:8000:8000"
     depends_on:
       mem0-postgres: { condition: service_healthy }
       mem0-neo4j: { condition: service_healthy }

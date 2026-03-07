@@ -120,7 +120,7 @@ nano ~/.openclaw/openclaw.json
         "enabled": true,
         "config": {
           "mode": "server",
-          "serverUrl": "http://localhost:8000",
+          "serverUrl": "http://YOUR_SERVER_IP:8000",
           "serverApiKey": "your-api-key-here",
           "userId": "default"
         }
@@ -229,7 +229,7 @@ mkdir -p ~/.openclaw/memory/tasks
         "enabled": true,
         "config": {
           "mode": "server",
-          "serverUrl": "http://localhost:8000",
+          "serverUrl": "http://YOUR_SERVER_IP:8000",
           "serverApiKey": "your-api-key-here",
           "userId": "default",
           "l0Enabled": true,

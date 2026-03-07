@@ -111,9 +111,15 @@ vim .env
 # 启动服务
 docker-compose -f docker-compose.prod.yaml up -d
 
-# 验证服务
+# 验证服务 (本地)
 curl http://localhost:8000/health
+
+# 验证服务 (外部访问)
+curl http://YOUR_SERVER_IP:8000/health
 ```
+
+> **网络配置**: Mem0 Server 绑定到 `0.0.0.0:8000`，支持局域网和外部访问。
+> 确保防火墙开放 8000 端口: `sudo firewall-cmd --add-port=8000/tcp --permanent && sudo firewall-cmd --reload`
 
 ### 2.3 Plugin 生产配置
 
@@ -409,6 +415,41 @@ cp -r ~/.openclaw ~/.openclaw.backup.$(date +%Y%m%d)
 
 # 备份 L0/L1 记忆
 tar -czvf memory_backup_$(date +%Y%m%d).tar.gz ~/.openclaw/memory*
+```
+
+### 6.5 数据持久化
+
+所有容器数据都保存到宿主机映射目录：
+
+| 容器 | 宿主机路径 | 容器路径 | 内容 |
+|------|-----------|----------|------|
+| mem0-postgres | `/opt/mem0-data/postgres` | `/var/lib/postgresql/data` | 向量数据 |
+| mem0-neo4j | `/opt/mem0-data/neo4j` | `/data` | 图数据库 |
+| mem0-redis | `/opt/mem0-data/redis` | `/data` | 缓存/速率限制 |
+| mem0-server | `/opt/mem0-data/history` | `/app/history` | API Keys/历史 |
+
+```bash
+# 查看数据目录
+ls -la /opt/mem0-data/
+
+# 数据目录大小
+du -sh /opt/mem0-data/*
+```
+
+### 6.6 外部访问配置
+
+Mem0 Server 绑定到 `0.0.0.0:8000`，支持外部访问：
+
+```bash
+# 开放防火墙端口
+sudo firewall-cmd --add-port=8000/tcp --permanent
+sudo firewall-cmd --reload
+
+# 验证外部访问
+curl http://YOUR_SERVER_IP:8000/health
+
+# 从其他机器访问
+# curl http://192.168.x.x:8000/health
 ```
 
 ---

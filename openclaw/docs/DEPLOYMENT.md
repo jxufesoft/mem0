@@ -113,7 +113,7 @@ npm run build
 ```json
 {
   "mode": "server",
-  "serverUrl": "http://localhost:8000",
+  "serverUrl": "http://YOUR_SERVER_IP:8000",
   "serverApiKey": "mem0_your_server_api_key",
   "agentId": "my-agent",
   "userId": "user-123",
@@ -168,7 +168,7 @@ npm run build
 ```json
 {
   "mode": "server",
-  "serverUrl": "http://localhost:8000",
+  "serverUrl": "http://YOUR_SERVER_IP:8000",
   "serverApiKey": "mem0_your_key",
 
   // L0 配置
@@ -251,7 +251,7 @@ curl -X POST http://localhost:8000/admin/keys \
 ```json
 {
   "mode": "server",
-  "serverUrl": "http://localhost:8000",
+  "serverUrl": "http://YOUR_SERVER_IP:8000",
   "serverApiKey": "mem0_xxx...",
   "agentId": "my-agent"
 }
@@ -346,6 +346,7 @@ Error: Failed to connect to Mem0 Server
 ```bash
 # 检查 Server 是否运行
 curl http://localhost:8000/health
+# 或从外部访问: curl http://YOUR_SERVER_IP:8000/health
 
 # 检查 API Key
 openclaw mem0 search --query "test"

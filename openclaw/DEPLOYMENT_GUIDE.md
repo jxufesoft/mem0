@@ -423,17 +423,17 @@ tar -czvf memory_backup_$(date +%Y%m%d).tar.gz ~/.openclaw/memory*
 
 | 容器 | 宿主机路径 | 容器路径 | 内容 |
 |------|-----------|----------|------|
-| mem0-postgres | `/opt/mem0-data/postgres` | `/var/lib/postgresql/data` | 向量数据 |
-| mem0-neo4j | `/opt/mem0-data/neo4j` | `/data` | 图数据库 |
-| mem0-redis | `/opt/mem0-data/redis` | `/data` | 缓存/速率限制 |
-| mem0-server | `/opt/mem0-data/history` | `/app/history` | API Keys/历史 |
+| mem0-postgres | `/home/yhz/mem0-data/postgres` | `/var/lib/postgresql/data` | 向量数据 |
+| mem0-neo4j | `/home/yhz/mem0-data/neo4j` | `/data` | 图数据库 |
+| mem0-redis | `/home/yhz/mem0-data/redis` | `/data` | 缓存/速率限制 |
+| mem0-server | `/home/yhz/mem0-data/history` | `/app/history` | API Keys/历史 |
 
 ```bash
 # 查看数据目录
-ls -la /opt/mem0-data/
+ls -la ~/mem0-data/
 
 # 数据目录大小
-du -sh /opt/mem0-data/*
+du -sh ~/mem0-data/*
 ```
 
 ### 6.6 外部访问配置

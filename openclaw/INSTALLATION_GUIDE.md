@@ -1,6 +1,448 @@
 # Mem0 Plugin v2.0.0 安装指南
 
-## 打包后的安装方式
+---
+
+# 零基础教程：从零开始安装 Mem0 Plugin
+
+> 适合：第一次使用 OpenClaw 和 Mem0 的用户
+> 预计时间：15-20 分钟
+
+## 第一步：环境准备
+
+### 1.1 检查 Node.js 版本
+
+```bash
+node --version
+# 需要 v18.0.0 或更高版本
+```
+
+如果没有安装 Node.js：
+```bash
+# 使用 nvm 安装（推荐）
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+source ~/.bashrc
+nvm install 22
+nvm use 22
+```
+
+### 1.2 检查 OpenClaw 是否安装
+
+```bash
+openclaw --version
+# 如果未安装，请先安装 OpenClaw
+```
+
+### 1.3 检查 Mem0 Server 是否运行（Server 模式需要）
+
+```bash
+curl http://localhost:8000/health
+# 应该返回: {"status": "healthy", ...}
+```
+
+如果服务器未运行，请参考 [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) 启动服务器。
+
+---
+
+## 第二步：获取 Plugin 包
+
+### 2.1 下载 Plugin 包
+
+```bash
+# 假设你已经有了打包文件
+ls -lh mem0-openclaw-mem0-2.0.0.tgz
+# -rw-r--r-- 1 user user 70K Mar  7 08:00 mem0-openclaw-mem0-2.0.0.tgz
+```
+
+### 2.2 验证包内容
+
+```bash
+tar -tzf mem0-openclaw-mem0-2.0.0.tgz | head -20
+# 应该看到:
+# package/package.json
+# package/index.ts
+# package/lib/...
+# package/README.md
+# ...
+```
+
+---
+
+## 第三步：安装 Plugin
+
+### 3.1 方法 A：使用 OpenClaw CLI 安装（推荐）
+
+```bash
+openclaw plugins install ./mem0-openclaw-mem0-2.0.0.tgz
+```
+
+### 3.2 方法 B：手动安装（如果 CLI 不支持）
+
+```bash
+# 1. 创建插件目录
+mkdir -p ~/.openclaw/extensions/openclaw-mem0
+
+# 2. 解压到插件目录
+tar -xzf mem0-openclaw-mem0-2.0.0.tgz -C ~/.openclaw/extensions/openclaw-mem0 --strip-components=1
+
+# 3. 安装依赖
+cd ~/.openclaw/extensions/openclaw-mem0
+npm install
+
+# 4. 返回原目录
+cd -
+```
+
+### 3.3 验证安装
+
+```bash
+openclaw plugins list | grep mem0
+# @mem0/openclaw-mem0  2.0.0  enabled
+```
+
+---
+
+## 第四步：配置 Plugin
+
+### 4.1 打开配置文件
+
+```bash
+nano ~/.openclaw/openclaw.json
+# 或使用你喜欢的编辑器
+```
+
+### 4.2 最简配置（Server 模式）
+
+```json5
+{
+  "plugins": {
+    "entries": {
+      "openclaw-mem0": {
+        "enabled": true,
+        "config": {
+          "mode": "server",
+          "serverUrl": "http://localhost:8000",
+          "serverApiKey": "your-api-key-here",
+          "userId": "default"
+        }
+      }
+    }
+  }
+}
+```
+
+### 4.3 获取 API Key
+
+```bash
+# 如果服务器运行中，创建新的 API Key
+curl -X POST http://localhost:8000/admin/keys \
+  -H "Content-Type: application/json" \
+  -d '{"agent_id": "my-agent", "description": "My OpenClaw Agent"}'
+
+# 返回示例:
+# {"api_key": "mem0_SxZcThQnwW05Du3..."}
+```
+
+将返回的 `api_key` 填入配置文件。
+
+### 4.4 重新加载配置
+
+```bash
+# 重启 OpenClaw 使配置生效
+openclaw restart
+```
+
+---
+
+## 第五步：测试 Plugin
+
+### 5.1 快速测试
+
+```bash
+# 测试记忆存储
+openclaw mem0 store "I prefer dark mode in my editor"
+
+# 测试记忆搜索
+openclaw mem0 search "editor preferences"
+```
+
+### 5.2 运行完整测试脚本
+
+```bash
+cd /home/yhz/project/mem0/openclaw
+
+# 设置 API Key
+export SERVER_API_KEY="your-api-key-here"
+
+# 运行功能测试
+bash test_plugin_comprehensive.sh
+
+# 运行性能测试
+bash test_performance.sh
+
+# 运行三层记忆测试
+bash test_three_tier_memory.sh
+```
+
+### 5.3 预期结果
+
+```
+功能测试: 23/23 通过 (100%)
+性能测试: 全部通过 ⭐⭐⭐⭐⭐
+三层记忆: 18/18 通过 (100%)
+```
+
+---
+
+## 第六步：启用三层记忆（可选但推荐）
+
+### 6.1 创建 L0 记忆文件
+
+```bash
+cat > ~/.openclaw/memory.md << 'EOF'
+# 用户核心信息
+
+## 个人信息
+- 姓名: [你的名字]
+- 时区: UTC+8
+
+## 偏好
+- 语言: 中文
+- 编程语言: Python
+EOF
+```
+
+### 6.2 创建 L1 目录结构
+
+```bash
+mkdir -p ~/.openclaw/memory/projects
+mkdir -p ~/.openclaw/memory/contacts
+mkdir -p ~/.openclaw/memory/tasks
+```
+
+### 6.3 更新配置启用三层记忆
+
+```json5
+{
+  "plugins": {
+    "entries": {
+      "openclaw-mem0": {
+        "enabled": true,
+        "config": {
+          "mode": "server",
+          "serverUrl": "http://localhost:8000",
+          "serverApiKey": "your-api-key-here",
+          "userId": "default",
+          "l0Enabled": true,
+          "l0Path": "memory.md",
+          "l1Enabled": true,
+          "l1Dir": "memory",
+          "l1RecentDays": 7,
+          "l1Categories": ["projects", "contacts", "tasks"],
+          "l1AutoWrite": true
+        }
+      }
+    }
+  }
+}
+```
+
+---
+
+## 恭喜！安装完成 🎉
+
+你已经成功安装并配置了 Mem0 Plugin。现在 OpenClaw 可以：
+
+- ✅ 自动记住对话中的重要信息
+- ✅ 自动召回相关记忆
+- ✅ 使用三层记忆架构快速访问
+- ✅ 在多个 Agent 之间隔离记忆
+
+---
+
+# Plugin 更新和卸载指南
+
+---
+
+## 更新 Plugin
+
+### 方法 1: 使用 OpenClaw CLI 更新
+
+```bash
+# 1. 备份当前配置
+cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.backup
+
+# 2. 卸载旧版本
+openclaw plugins uninstall @mem0/openclaw-mem0
+
+# 3. 安装新版本
+openclaw plugins install ./mem0-openclaw-mem0-2.0.1.tgz
+
+# 4. 验证安装
+openclaw plugins show @mem0/openclaw-mem0
+
+# 5. 恢复配置（如果需要）
+# 新版本通常会保留配置，但如果有 breaking changes:
+# nano ~/.openclaw/openclaw.json
+```
+
+### 方法 2: 手动更新
+
+```bash
+# 1. 备份配置和记忆文件
+cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.backup
+cp ~/.openclaw/memory.md ~/.openclaw/memory.md.backup 2>/dev/null
+cp -r ~/.openclaw/memory ~/.openclaw/memory.backup 2>/dev/null
+
+# 2. 删除旧版本
+rm -rf ~/.openclaw/extensions/openclaw-mem0
+
+# 3. 解压新版本
+mkdir -p ~/.openclaw/extensions/openclaw-mem0
+tar -xzf mem0-openclaw-mem0-2.0.1.tgz -C ~/.openclaw/extensions/openclaw-mem0 --strip-components=1
+
+# 4. 安装依赖
+cd ~/.openclaw/extensions/openclaw-mem0
+npm install
+
+# 5. 重启 OpenClaw
+openclaw restart
+
+# 6. 验证
+openclaw plugins list | grep mem0
+```
+
+### 版本迁移检查清单
+
+升级时需要检查：
+
+```bash
+# 1. 检查版本变更
+cat ~/.openclaw/extensions/openclaw-mem0/package.json | grep version
+
+# 2. 查看配置兼容性
+openclaw plugins show @mem0/openclaw-mem0
+
+# 3. 运行测试验证
+cd /home/yhz/project/mem0/openclaw
+bash test_plugin_comprehensive.sh
+```
+
+---
+
+## 卸载 Plugin
+
+### 完全卸载（删除所有数据）
+
+```bash
+# 1. 使用 CLI 卸载
+openclaw plugins uninstall @mem0/openclaw-mem0
+
+# 2. 删除插件文件
+rm -rf ~/.openclaw/extensions/openclaw-mem0
+
+# 3. 删除 L0 记忆文件
+rm -f ~/.openclaw/memory.md
+
+# 4. 删除 L1 记忆目录
+rm -rf ~/.openclaw/memory
+
+# 5. 清理配置（可选）
+# 编辑 ~/.openclaw/openclaw.json 删除 openclaw-mem0 相关配置
+
+# 6. 删除备份文件（可选）
+rm -f ~/.openclaw/openclaw.json.backup
+rm -f ~/.openclaw/memory.md.backup
+rm -rf ~/.openclaw/memory.backup
+```
+
+### 保留数据卸载（仅卸载插件）
+
+```bash
+# 1. 卸载插件
+openclaw plugins uninstall @mem0/openclaw-mem0
+
+# 2. 删除插件文件
+rm -rf ~/.openclaw/extensions/openclaw-mem0
+
+# 3. 保留的文件:
+#    - ~/.openclaw/memory.md (L0 记忆)
+#    - ~/.openclaw/memory/   (L1 记忆)
+#    - L2 记忆在 Server 端
+```
+
+### 仅禁用（不删除）
+
+```bash
+# 方法 1: 通过配置禁用
+openclaw config set plugins.entries.openclaw-mem0.enabled false
+
+# 方法 2: 编辑配置文件
+nano ~/.openclaw/openclaw.json
+# 将 "enabled": true 改为 "enabled": false
+
+# 重启生效
+openclaw restart
+```
+
+---
+
+## 清理 Server 端数据
+
+如果使用 Server 模式，卸载后可能需要清理 Server 端的数据：
+
+```bash
+# 设置 API Key
+export API_KEY="your-api-key"
+
+# 删除特定用户的记忆
+curl -X DELETE "http://localhost:8000/memories?user_id=default&agent_id=openclaw-main" \
+  -H "X-API-Key: $API_KEY"
+
+# 删除特定 Agent 的记忆
+curl -X DELETE "http://localhost:8000/memories?agent_id=openclaw-main" \
+  -H "X-API-Key: $API_KEY"
+
+# 警告: 完全重置（删除所有数据）
+curl -X POST "http://localhost:8000/reset" \
+  -H "X-API-Key: $API_KEY"
+```
+
+---
+
+## 重新安装
+
+如果遇到问题，可以尝试完全重新安装：
+
+```bash
+# 1. 完全卸载
+openclaw plugins uninstall @mem0/openclaw-mem0
+rm -rf ~/.openclaw/extensions/openclaw-mem0
+
+# 2. 清理 npm 缓存
+npm cache clean --force
+
+# 3. 重新安装
+openclaw plugins install ./mem0-openclaw-mem0-2.0.0.tgz
+
+# 4. 如果是手动安装
+mkdir -p ~/.openclaw/extensions/openclaw-mem0
+tar -xzf mem0-openclaw-mem0-2.0.0.tgz -C ~/.openclaw/extensions/openclaw-mem0 --strip-components=1
+cd ~/.openclaw/extensions/openclaw-mem0
+npm install
+
+# 5. 重新配置
+nano ~/.openclaw/openclaw.json
+
+# 6. 重启
+openclaw restart
+
+# 7. 验证
+openclaw plugins list | grep mem0
+```
+
+---
+
+# 高级安装方式
 
 ---
 
@@ -481,58 +923,6 @@ chmod 755 memory/
 # 检查所有者
 whoami
 stat memory.md | grep "Uid"
-```
-
----
-
-## 升级插件
-
-### 升级步骤
-
-```bash
-# 1. 备份当前配置
-cp ~/.openclaw/openclaw.json ~/.openclaw/openclaw.json.backup
-
-# 2. 卸载旧版本
-openclaw plugins uninstall @mem0/openclaw-mem0
-
-# 3. 安装新版本
-openclaw plugins install ./mem0-openclaw-mem0-2.0.0.tgz
-
-# 4. 验证配置
-openclaw plugins show @mem0/openclaw-mem0
-
-# 5. 测试功能
-openclaw mem0 search "test"
-```
-
-### 配置迁移
-
-如果配置结构有变化：
-
-```bash
-# 比较旧配置和新配置
-diff ~/.openclaw/openclaw.json.backup ~/.openclaw/openclaw.json
-
-# 手动迁移配置
-# 更新配置文件以匹配新版本的 schema
-```
-
----
-
-## 卸载插件
-
-```bash
-# 卸载插件
-openclaw plugins uninstall @mem0/openclaw-mem0
-
-# 可选：删除本地文件
-rm -rf ~/.openclaw/plugins/@mem0/openclaw-mem0
-
-# 可选：删除记忆文件
-# 注意：这会删除所有存储的记忆
-rm -f memory.md
-rm -rf memory/
 ```
 
 ---

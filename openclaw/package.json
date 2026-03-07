@@ -47,7 +47,8 @@
     "PLUGIN_FIXES_SUMMARY.md",
     "DOCS_SUMMARY.md",
     "test_plugin_comprehensive.sh",
-    "test_performance.sh"
+    "test_performance.sh",
+    "test_three_tier_memory.sh"
   ],
   "openclaw": {
     "extensions": [

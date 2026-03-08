@@ -40,12 +40,8 @@
     "INSTALLATION_GUIDE.md",
     "DEPLOYMENT_GUIDE.md",
     "BEGINNER_GUIDE.md",
-    "PACKAGE_REPORT.md",
     "TEST_REPORT.md",
     "TEST_SUMMARY.md",
-    "INSTALLATION_VERIFICATION.md",
-    "PLUGIN_FIXES_SUMMARY.md",
-    "DOCS_SUMMARY.md",
     "test_plugin_comprehensive.sh",
     "test_performance.sh",
     "test_three_tier_memory.sh"

@@ -21,9 +21,12 @@ from typing import Any, Dict, List, Optional
 
 import redis.asyncio as redis
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
 from mem0 import Memory
@@ -303,12 +306,41 @@ async def lifespan(app: FastAPI):
 
 
 # ============================================================================
+# Security Schemes for OpenAPI
+# ============================================================================
+
+# HTTP Bearer security scheme for Swagger UI
+security = HTTPBearer(
+    scheme_name="X-API-Key",
+    description="API Key 认证。在请求头中添加 X-API-Key。\n\n- **普通 API**: 使用通过 /admin/keys 创建的 API Key\n- **管理端点 (/admin/*)**: 使用 ADMIN_SECRET_KEY 环境变量",
+)
+
+
+# ============================================================================
 # FastAPI App
 # ============================================================================
 
 app = FastAPI(
     title="Mem0 Enhanced Server",
-    description="Production-grade REST API for managing and searching memories with multi-agent support, authentication, and rate limiting.",
+    description="""## Mem0 增强版 REST API
+
+生产级记忆管理服务，支持多 Agent、认证和速率限制。
+
+### 认证方式
+
+所有端点（除 /health 外）需要 API Key 认证：
+
+- **请求头**: `X-API-Key: your-api-key`
+- **普通端点**: 使用 `/admin/keys` 创建的 API Key
+- **管理端点 (/admin/\*)**: 使用 `ADMIN_SECRET_KEY` 环境变量
+
+### 功能特性
+
+- 🧠 多 Agent 隔离存储
+- 🔐 API Key 认证
+- ⚡ Redis 速率限制
+- 🔍 向量语义搜索
+""",
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -381,18 +413,73 @@ async def verify_key(api_key: str, request: Request) -> bool:
     return True
 
 
+async def get_api_key(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> str:
+    """
+    依赖注入：验证 API Key 并返回。
+
+    用于 Swagger UI 的 "Authorize" 按钮和 OpenAPI 文档。
+    """
+    api_key = credentials.credentials
+
+    # 对于管理端点，检查 ADMIN_SECRET_KEY
+    # 注意：由于这里无法获取 request，我们在中间件中处理 admin 认证
+
+    # 验证普通 API Key
+    key_data = verify_api_key(api_key)
+    if not key_data:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid API key",
+        )
+
+    # 检查速率限制
+    within_limit = await redis_manager.check_rate_limit(api_key, RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW)
+    if not within_limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded",
+        )
+
+    return api_key
+
+
+async def get_admin_key(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> str:
+    """
+    依赖注入：验证管理 API Key。
+
+    仅用于 /admin/* 端点。
+    """
+    api_key = credentials.credentials
+
+    if api_key != ADMIN_SECRET_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid admin API key",
+        )
+
+    return api_key
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     """Middleware for API key authentication and rate limiting."""
     # Skip auth for health endpoint and docs
-    if request.url.path in ["/", "/docs", "/openapi.json", "/health"]:
+    if request.url.path in ["/", "/docs", "/openapi.json", "/health", "/redoc"]:
         return await call_next(request)
 
-    api_key = request.headers.get("X-API-Key")
+    # Skip for OPTIONS requests (CORS preflight)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    api_key = request.headers.get("X-API-Key") or request.headers.get("Authorization", "").replace("Bearer ", "")
     if not api_key:
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            content={"detail": "Missing X-API-Key header"},
+            content={"detail": "Missing X-API-Key header or Authorization Bearer token"},
         )
 
     if not await verify_key(api_key, request):
@@ -426,12 +513,18 @@ async def health_check():
 
 
 # ============================================================================
-# Admin Endpoints
+# Admin Endpoints (需要管理员 API Key)
 # ============================================================================
 
-@app.post("/admin/keys", summary="Create API key")
+@app.post("/admin/keys", summary="创建 API Key", dependencies=[Depends(get_admin_key)])
 async def create_api_key(req: CreateKeyRequest):
-    """Create a new API key for an agent."""
+    """
+    创建新的 API Key。
+
+    **需要管理员权限**: 使用 ADMIN_SECRET_KEY 环境变量值作为 X-API-Key。
+
+    返回新创建的 API Key，可用于后续 API 调用。
+    """
     keys = load_api_keys()
     api_key = generate_api_key()
 
@@ -452,9 +545,13 @@ async def create_api_key(req: CreateKeyRequest):
     }
 
 
-@app.get("/admin/keys", summary="List API keys")
+@app.get("/admin/keys", summary="列出所有 API Keys", dependencies=[Depends(get_admin_key)])
 async def list_api_keys():
-    """List all API keys (without full key value)."""
+    """
+    列出所有 API Keys（不显示完整密钥）。
+
+    **需要管理员权限**: 使用 ADMIN_SECRET_KEY 环境变量值作为 X-API-Key。
+    """
     keys = load_api_keys()
     result = []
     for key, data in keys.items():
@@ -468,9 +565,13 @@ async def list_api_keys():
     return {"keys": result}
 
 
-@app.delete("/admin/keys", summary="Revoke API key")
+@app.delete("/admin/keys", summary="撤销 API Key", dependencies=[Depends(get_admin_key)])
 async def revoke_api_key(req: RevokeKeyRequest):
-    """Revoke an API key."""
+    """
+    撤销指定的 API Key。
+
+    **需要管理员权限**: 使用 ADMIN_SECRET_KEY 环境变量值作为 X-API-Key。
+    """
     keys = load_api_keys()
     if req.api_key not in keys:
         raise HTTPException(status_code=404, detail="API key not found")
@@ -483,21 +584,29 @@ async def revoke_api_key(req: RevokeKeyRequest):
 
 
 # ============================================================================
-# Memory Endpoints
+# Memory Endpoints (需要 API Key 认证)
 # ============================================================================
 
-@app.post("/configure", summary="Configure Mem0")
+@app.post("/configure", summary="配置 Mem0", dependencies=[Depends(get_api_key)])
 async def set_config(config: Dict[str, Any]):
-    """Set memory configuration (not recommended in production)."""
-    # In production, configuration should be managed via environment variables
-    # This endpoint is kept for backward compatibility
+    """
+    设置记忆配置（不推荐在生产环境使用）。
+
+    生产环境应通过环境变量管理配置。
+    """
     logger.warning("Dynamic configuration not recommended in production")
     return {"message": "Configuration should be managed via environment variables"}
 
 
-@app.post("/memories", summary="Create memories")
+@app.post("/memories", summary="创建记忆", dependencies=[Depends(get_api_key)])
 async def add_memory(memory_create: MemoryCreate, request: Request):
-    """Store new memories."""
+    """
+    存储新的记忆。
+
+    从消息中提取事实并存储到向量数据库。
+
+    **必需参数**: 至少提供 user_id、agent_id 或 run_id 之一。
+    """
     if not any([memory_create.user_id, memory_create.agent_id, memory_create.run_id]):
         raise HTTPException(status_code=400, detail="At least one identifier (user_id, agent_id, run_id) is required.")
 
@@ -514,13 +623,17 @@ async def add_memory(memory_create: MemoryCreate, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/memories", summary="Get memories")
+@app.get("/memories", summary="获取记忆列表", dependencies=[Depends(get_api_key)])
 async def get_all_memories(
     user_id: Optional[str] = None,
     run_id: Optional[str] = None,
     agent_id: Optional[str] = None,
 ):
-    """Retrieve stored memories."""
+    """
+    检索存储的记忆。
+
+    **必需参数**: 至少提供 user_id、agent_id 或 run_id 之一。
+    """
     if not any([user_id, run_id, agent_id]):
         raise HTTPException(status_code=400, detail="At least one identifier is required.")
 
@@ -537,9 +650,11 @@ async def get_all_memories(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/memories/{memory_id}", summary="Get a memory")
+@app.get("/memories/{memory_id}", summary="获取单个记忆", dependencies=[Depends(get_api_key)])
 async def get_memory(memory_id: str, agent_id: Optional[str] = "default"):
-    """Retrieve a specific memory by ID."""
+    """
+    通过 ID 检索特定记忆。
+    """
     memory_instance = await get_agent_instance(agent_id)
     try:
         return memory_instance.get(memory_id)
@@ -548,9 +663,13 @@ async def get_memory(memory_id: str, agent_id: Optional[str] = "default"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/search", summary="Search memories")
+@app.post("/search", summary="搜索记忆", dependencies=[Depends(get_api_key)])
 async def search_memories(search_req: SearchRequest):
-    """Search for memories based on a query."""
+    """
+    基于查询语句搜索记忆。
+
+    使用向量语义搜索返回相关记忆。
+    """
     agent_id = search_req.agent_id or "default"
     memory_instance = await get_agent_instance(agent_id)
 
@@ -561,10 +680,23 @@ async def search_memories(search_req: SearchRequest):
         logger.exception(f"Error in search_memories for agent {agent_id}:")
         raise HTTPException(status_code=500, detail=str(e))
 
+    try:
+        params = {k: v for k, v in search_req.model_dump().items() if v is not None and k != "query"}
+        return memory_instance.search(query=search_req.query, **params)
+    except Exception as e:
+        logger.exception(f"Error in search_memories for agent {agent_id}:")
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.put("/memories/{memory_id}", summary="Update a memory")
+
+@app.put("/memories/{memory_id}", summary="更新记忆", dependencies=[Depends(get_api_key)])
 async def update_memory(memory_id: str, updated_memory: Dict[str, Any], agent_id: Optional[str] = "default"):
-    """Update an existing memory with new content."""
+    """
+    更新现有记忆的内容。
+
+    支持两种请求格式：
+    - `{"data": "新内容"}`
+    - `{"memory": "新内容"}`
+    """
     memory_instance = await get_agent_instance(agent_id)
     try:
         # Extract data from request - support both string and dict format
@@ -582,9 +714,11 @@ async def update_memory(memory_id: str, updated_memory: Dict[str, Any], agent_id
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/memories/{memory_id}/history", summary="Get memory history")
+@app.get("/memories/{memory_id}/history", summary="获取记忆历史", dependencies=[Depends(get_api_key)])
 async def memory_history(memory_id: str, agent_id: Optional[str] = "default"):
-    """Retrieve memory history."""
+    """
+    获取特定记忆的变更历史。
+    """
     memory_instance = await get_agent_instance(agent_id)
     try:
         return memory_instance.history(memory_id=memory_id)
@@ -593,9 +727,11 @@ async def memory_history(memory_id: str, agent_id: Optional[str] = "default"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/memories/{memory_id}", summary="Delete a memory")
+@app.delete("/memories/{memory_id}", summary="删除记忆", dependencies=[Depends(get_api_key)])
 async def delete_memory(memory_id: str, agent_id: Optional[str] = "default"):
-    """Delete a specific memory by ID."""
+    """
+    通过 ID 删除特定记忆。
+    """
     memory_instance = await get_agent_instance(agent_id)
     try:
         memory_instance.delete(memory_id=memory_id)
@@ -605,13 +741,17 @@ async def delete_memory(memory_id: str, agent_id: Optional[str] = "default"):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/memories", summary="Delete all memories")
+@app.delete("/memories", summary="批量删除记忆", dependencies=[Depends(get_api_key)])
 async def delete_all_memories(
     user_id: Optional[str] = None,
     run_id: Optional[str] = None,
     agent_id: Optional[str] = None,
 ):
-    """Delete all memories for a given identifier."""
+    """
+    根据标识符批量删除记忆。
+
+    **必需参数**: 至少提供 user_id、agent_id 或 run_id 之一。
+    """
     if not any([user_id, run_id, agent_id]):
         raise HTTPException(status_code=400, detail="At least one identifier is required.")
 
@@ -629,9 +769,13 @@ async def delete_all_memories(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/reset", summary="Reset all memories")
+@app.post("/reset", summary="重置所有记忆", dependencies=[Depends(get_api_key)])
 async def reset_memory(agent_id: Optional[str] = "default"):
-    """Completely reset stored memories for an agent."""
+    """
+    完全重置指定 Agent 的所有记忆。
+
+    ⚠️ **警告**: 此操作不可逆！
+    """
     memory_instance = await get_agent_instance(agent_id)
     try:
         memory_instance.reset()

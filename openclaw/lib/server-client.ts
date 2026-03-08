@@ -71,7 +71,7 @@ export class ServerClient {
     this.client = axios.create({
       baseURL: config.serverUrl,
       headers: {
-        "X-API-Key": config.apiKey,
+        "Authorization": `Bearer ${config.apiKey}`,
         "Content-Type": "application/json",
       },
     });

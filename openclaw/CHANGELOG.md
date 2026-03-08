@@ -2,6 +2,41 @@
 
 All notable changes to the Mem0 OpenClaw Plugin.
 
+## [2.0.1] - 2026-03-08
+
+### Release Summary
+
+Minor documentation update to align API authentication format with server implementation.
+
+### Changed
+
+- **API Authentication Format** - Updated README.md curl examples from `X-API-Key` header to `Authorization: Bearer` format
+- **agent_id Parameter** - Added documentation for required `agent_id` query parameter on GET/PUT/DELETE `/memories/{id}` endpoints
+- **Server README** - Added complete curl examples for all 13 API endpoints with proper authentication
+
+### Documentation Updates
+
+- `server/README.md` - Updated authentication format and added parameter requirements
+- API endpoint documentation now correctly shows Bearer token authentication
+
+### Test Results
+
+All 13 API tests passed (100%):
+- Health check, API key management (create/list/revoke)
+- Memory CRUD operations (create/read/update/delete)
+- Search, history, batch operations
+- Authentication validation
+
+### Upgrade from 2.0.0
+
+No code changes required. Simply reinstall the plugin:
+
+```bash
+openclaw plugins install mem0-openclaw-mem0-2.0.1.tgz
+```
+
+---
+
 ## [2.0.0] - 2026-03-07
 
 ### Release Summary

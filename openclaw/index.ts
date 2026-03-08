@@ -1576,12 +1576,143 @@ const memoryPlugin = {
     }
 
     // ========================================================================
+    // Initialization Helpers
+    // ========================================================================
+
+    /**
+     * Initialize L0/L1 memory files on plugin start
+     */
+    async function initializeMemoryFiles(
+      config: Mem0Config,
+      api: OpenClawPluginApi,
+      l0: L0Manager | null,
+      l1: L1Manager | null,
+    ): Promise<void> {
+      const fs = await import("node:fs/promises");
+      const path = await import("node:path");
+
+      try {
+        // Initialize L0 file (memory.md)
+        if (config.l0Enabled && l0) {
+          const l0Path = api.resolvePath(config.l0Path || "memory.md");
+
+          try {
+            await fs.access(l0Path);
+            api.logger.info(`openclaw-mem0: L0 file exists at ${l0Path}`);
+          } catch {
+            // Create L0 file with header
+            await fs.mkdir(path.dirname(l0Path), { recursive: true });
+            await fs.writeFile(
+              l0Path,
+              `# Memory - 关键事实\n\n> 此文件由 Mem0 Plugin L0 层自动维护\n> 存储用户的核心偏好和重要信息\n\n`,
+            );
+            api.logger.info(`openclaw-mem0: L0 file created at ${l0Path}`);
+          }
+        }
+
+        // Initialize L1 directory and category files
+        if (config.l1Enabled && l1) {
+          const l1Dir = api.resolvePath(config.l1Dir || "memory");
+          const categories = config.l1Categories || ["projects", "contacts", "tasks", "preferences"];
+
+          // Create L1 directory
+          await fs.mkdir(l1Dir, { recursive: true });
+          api.logger.info(`openclaw-mem0: L1 directory ensured at ${l1Dir}`);
+
+          // Create category files
+          for (const category of categories) {
+            const categoryPath = path.join(l1Dir, `${category}.md`);
+            try {
+              await fs.access(categoryPath);
+            } catch {
+              await fs.writeFile(
+                categoryPath,
+                `# ${category.charAt(0).toUpperCase() + category.slice(1)} - 分类记忆\n\n> 此文件由 Mem0 Plugin L1 层自动维护\n\n`,
+              );
+              api.logger.info(`openclaw-mem0: L1 category file created: ${category}.md`);
+            }
+          }
+        }
+
+        api.logger.info("openclaw-mem0: L0/L1 memory files initialized");
+      } catch (error) {
+        api.logger.warn(`openclaw-mem0: failed to initialize L0/L1 files: ${String(error)}`);
+      }
+    }
+
+    /**
+     * Update openclaw.json with mem0 configuration
+     */
+    async function updateOpenClawConfig(config: Mem0Config, api: OpenClawPluginApi): Promise<void> {
+      try {
+        const fs = await import("node:fs/promises");
+        const path = await import("node:path");
+        const os = await import("node:os");
+
+        const openclawJsonPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
+
+        // Read current config
+        const content = await fs.readFile(openclawJsonPath, "utf-8");
+        const openclawConfig = JSON.parse(content);
+
+        // Ensure plugin config exists
+        if (!openclawConfig.plugins) openclawConfig.plugins = {};
+        if (!openclawConfig.plugins.entries) openclawConfig.plugins.entries = {};
+        if (!openclawConfig.plugins.entries["openclaw-mem0"]) {
+          openclawConfig.plugins.entries["openclaw-mem0"] = { enabled: true, config: {} };
+        }
+        if (!openclawConfig.plugins.entries["openclaw-mem0"].config) {
+          openclawConfig.plugins.entries["openclaw-mem0"].config = {};
+        }
+
+        // Update with current config values
+        const mem0Config = openclawConfig.plugins.entries["openclaw-mem0"].config;
+
+        // Set server mode configuration
+        mem0Config.mode = config.mode;
+        mem0Config.userId = config.userId;
+        mem0Config.agentId = config.agentId || "openclaw-main";
+        mem0Config.autoRecall = config.autoRecall;
+        mem0Config.autoCapture = config.autoCapture;
+        mem0Config.topK = config.topK;
+        mem0Config.searchThreshold = config.searchThreshold;
+
+        // Set server mode specific config
+        if (config.mode === "server") {
+          mem0Config.serverUrl = config.serverUrl;
+          mem0Config.serverApiKey = config.serverApiKey;
+        }
+
+        // Set L0/L1 config
+        mem0Config.l0Enabled = config.l0Enabled;
+        mem0Config.l0Path = api.resolvePath(config.l0Path || "memory.md");
+        mem0Config.l1Enabled = config.l1Enabled;
+        mem0Config.l1Dir = api.resolvePath(config.l1Dir || "memory");
+        mem0Config.l1RecentDays = config.l1RecentDays || 7;
+        mem0Config.l1Categories = config.l1Categories || ["projects", "contacts", "tasks", "preferences"];
+        mem0Config.l1AutoWrite = config.l1AutoWrite || false;
+
+        // Write updated config
+        await fs.writeFile(openclawJsonPath, JSON.stringify(openclawConfig, null, 2));
+        api.logger.info("openclaw-mem0: updated openclaw.json with mem0 configuration");
+      } catch (error) {
+        api.logger.warn(`openclaw-mem0: failed to update openclaw.json: ${String(error)}`);
+      }
+    }
+
+    // ========================================================================
     // Service
     // ========================================================================
 
     api.registerService({
       id: "openclaw-mem0",
-      start: () => {
+      start: async () => {
+        // Initialize L0/L1 files
+        await initializeMemoryFiles(cfg, api, l0Manager, l1Manager);
+
+        // Update openclaw.json with mem0 configuration
+        await updateOpenClawConfig(cfg, api);
+
         api.logger.info(
           `openclaw-mem0: initialized (mode: ${cfg.mode}, user: ${cfg.userId}, L0: ${cfg.l0Enabled}, L1: ${cfg.l1Enabled}, autoRecall: ${cfg.autoRecall}, autoCapture: ${cfg.autoCapture})`,
         );

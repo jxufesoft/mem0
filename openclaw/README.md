@@ -47,6 +47,14 @@ npm install @mem0/openclaw-mem0
 **方式 2: 从本地包安装**
 ```bash
 openclaw plugin install mem0-openclaw-mem0-2.0.0.tgz
+
+openclaw plugins install ./mem0-openclaw-mem0-2.0.1.tgz
+openclaw gateway restart
+
+
+openclaw plugins uninstall @mem0/openclaw-mem0
+ rm -rf /home/yhz/.openclaw/extensions/openclaw-mem0
+openclaw gateway restart
 ```
 
 **方式 3: 从源码安装**

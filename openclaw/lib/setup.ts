@@ -1,8 +1,8 @@
 /**
  * Memory Manager Setup
- * 
- * Automatically creates memory_manager.sh script and crontab entry
- * when plugin is first loaded on a new machine.
+ *
+ * Provides memory optimization for L0/L1 layers.
+ * Uses trigger-based optimization instead of cron jobs.
  */
 
 import * as fs from "node:fs/promises";
@@ -13,7 +13,354 @@ import { promisify } from "node:util";
 
 const execAsync = promisify(exec);
 
-const SCRIPT_VERSION = "1.1.0";
+const SCRIPT_VERSION = "1.2.0";
+
+// ============================================================================
+// Memory Optimizer Configuration
+// ============================================================================
+
+export interface OptimizerConfig {
+  l0Path: string;           // L0 file path (memory.md)
+  l1Dir: string;            // L1 directory path
+  contextMaxKB: number;     // Max context size in KB (default: 100)
+  l1FileMaxKB: number;      // Max single L1 file size in KB (default: 50)
+  l1KeepRecentDays: number; // Keep L1 files for N days (default: 7)
+  l0MaxLines: number;       // Max L0 lines (default: 100)
+}
+
+export interface OptimizationResult {
+  optimized: boolean;
+  originalSizeKB: number;
+  newSizeKB: number;
+  savedKB: number;
+  actions: string[];
+}
+
+// ============================================================================
+// Memory Optimizer Class (Trigger-based)
+// ============================================================================
+
+export class MemoryOptimizer {
+  private config: OptimizerConfig;
+  private lastOptimization: number = 0;
+  private minIntervalMs: number = 60 * 1000; // Min 1 min between optimizations
+
+  constructor(config: Partial<OptimizerConfig> & { l0Path: string; l1Dir: string }) {
+    this.config = {
+      contextMaxKB: 100,
+      l1FileMaxKB: 50,
+      l1KeepRecentDays: 7,
+      l0MaxLines: 100,
+      ...config,
+    };
+  }
+
+  /**
+   * Get file size in bytes
+   */
+  private async getFileSize(filePath: string): Promise<number> {
+    try {
+      const stats = await fs.stat(filePath);
+      return stats.size;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Get file line count
+   */
+  private async getFileLines(filePath: string): Promise<number> {
+    try {
+      const content = await fs.readFile(filePath, "utf-8");
+      return content.split("\n").length;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Get total context size (L0 + L1)
+   */
+  async getContextSize(): Promise<{ l0Bytes: number; l1Bytes: number; totalBytes: number }> {
+    let l0Bytes = 0;
+    let l1Bytes = 0;
+
+    // L0 size
+    l0Bytes = await this.getFileSize(this.config.l0Path);
+
+    // L1 size (all .md files in directory, excluding archive)
+    try {
+      const files = await fs.readdir(this.config.l1Dir);
+      for (const file of files) {
+        if (!file.endsWith(".md")) continue;
+        if (file.includes("archive")) continue;
+
+        const filePath = path.join(this.config.l1Dir, file);
+        const stat = await fs.stat(filePath);
+        if (stat.isFile()) {
+          l1Bytes += stat.size;
+        }
+      }
+    } catch {
+      // Directory doesn't exist
+    }
+
+    return {
+      l0Bytes,
+      l1Bytes,
+      totalBytes: l0Bytes + l1Bytes,
+    };
+  }
+
+  /**
+   * Check if optimization is needed
+   */
+  async needsOptimization(): Promise<boolean> {
+    const { totalBytes } = await this.getContextSize();
+    const maxBytes = this.config.contextMaxKB * 1024;
+    return totalBytes > maxBytes;
+  }
+
+  /**
+   * Check and optimize if needed (trigger-based)
+   * Returns null if no optimization was needed
+   */
+  async checkAndOptimize(): Promise<OptimizationResult | null> {
+    // Rate limiting
+    const now = Date.now();
+    if (now - this.lastOptimization < this.minIntervalMs) {
+      return null;
+    }
+
+    const needs = await this.needsOptimization();
+    if (!needs) {
+      return null;
+    }
+
+    this.lastOptimization = now;
+    return this.optimize();
+  }
+
+  /**
+   * Force optimization regardless of threshold
+   */
+  async optimize(): Promise<OptimizationResult> {
+    const actions: string[] = [];
+    const { totalBytes: originalBytes } = await this.getContextSize();
+
+    // 1. Compress large L1 files
+    const compressed = await this.compressL1Files();
+    actions.push(...compressed);
+
+    // 2. Deduplicate L1 content
+    const deduped = await this.deduplicateL1Content();
+    actions.push(...deduped);
+
+    // 3. Archive old L1 files
+    const archived = await this.archiveOldFiles();
+    actions.push(...archived);
+
+    // 4. Prune L0 file
+    const pruned = await this.pruneL0File();
+    actions.push(...pruned);
+
+    const { totalBytes: newBytes } = await this.getContextSize();
+
+    return {
+      optimized: true,
+      originalSizeKB: Math.round(originalBytes / 1024),
+      newSizeKB: Math.round(newBytes / 1024),
+      savedKB: Math.round((originalBytes - newBytes) / 1024),
+      actions,
+    };
+  }
+
+  /**
+   * Compress large L1 files
+   */
+  private async compressL1Files(): Promise<string[]> {
+    const actions: string[] = [];
+    const maxBytes = this.config.l1FileMaxKB * 1024;
+
+    try {
+      await fs.mkdir(this.config.l1Dir, { recursive: true });
+      const files = await fs.readdir(this.config.l1Dir);
+
+      for (const file of files) {
+        if (!file.endsWith(".md") || file.includes("archive")) continue;
+
+        const filePath = path.join(this.config.l1Dir, file);
+        const stat = await fs.stat(filePath);
+        if (!stat.isFile()) continue;
+
+        if (stat.size > maxBytes) {
+          const content = await fs.readFile(filePath, "utf-8");
+          const lines = content.split("\n");
+
+          // Keep header (first 20 lines) + keywords + tail (last 30 lines)
+          const header = lines.slice(0, 20);
+          const keywords = lines.filter(line =>
+            /^[#-]/.test(line) ||
+            /重要|关键|TODO|FIXME|项目|任务|截止|deadline|important|key/i.test(line)
+          ).slice(0, 20);
+          const tail = lines.slice(-30);
+
+          const compressed = [
+            ...header,
+            "",
+            `--- [自动压缩于 ${new Date().toISOString().slice(0, 16)}] ---`,
+            "",
+            ...keywords,
+            "",
+            "## 最近更新",
+            ...tail,
+          ].join("\n");
+
+          await fs.writeFile(filePath, compressed, "utf-8");
+          actions.push(`compressed: ${file}`);
+        }
+      }
+    } catch (error) {
+      console.error(`[MemoryOptimizer] compressL1Files error: ${error}`);
+    }
+
+    return actions;
+  }
+
+  /**
+   * Deduplicate L1 content
+   */
+  private async deduplicateL1Content(): Promise<string[]> {
+    const actions: string[] = [];
+
+    try {
+      const files = await fs.readdir(this.config.l1Dir);
+
+      for (const file of files) {
+        if (!file.endsWith(".md") || file.includes("archive")) continue;
+
+        const filePath = path.join(this.config.l1Dir, file);
+        const stat = await fs.stat(filePath);
+        if (!stat.isFile()) continue;
+
+        const content = await fs.readFile(filePath, "utf-8");
+        const lines = content.split("\n");
+        const originalLines = lines.length;
+
+        // For date files, use uniq (consecutive duplicates only)
+        // For category files, use Set (all duplicates)
+        const isDateFile = /^\d{4}-\d{2}-\d{2}\.md$/.test(file);
+
+        let dedupedLines: string[];
+        if (isDateFile) {
+          // Remove consecutive duplicates
+          dedupedLines = lines.filter((line, i) => i === 0 || lines[i - 1] !== line);
+        } else {
+          // Remove all duplicates while preserving order
+          const seen = new Set<string>();
+          dedupedLines = lines.filter(line => {
+            if (seen.has(line)) return false;
+            seen.add(line);
+            return true;
+          });
+        }
+
+        if (dedupedLines.length < originalLines) {
+          await fs.writeFile(filePath, dedupedLines.join("\n"), "utf-8");
+          actions.push(`deduped: ${file} (removed ${originalLines - dedupedLines.length} lines)`);
+        }
+      }
+    } catch (error) {
+      console.error(`[MemoryOptimizer] deduplicateL1Content error: ${error}`);
+    }
+
+    return actions;
+  }
+
+  /**
+   * Archive old L1 files
+   */
+  private async archiveOldFiles(): Promise<string[]> {
+    const actions: string[] = [];
+    const cutoffMs = this.config.l1KeepRecentDays * 24 * 60 * 60 * 1000;
+    const cutoffTime = Date.now() - cutoffMs;
+
+    try {
+      const archiveDir = path.join(this.config.l1Dir, "archive", new Date().toISOString().slice(0, 7));
+      await fs.mkdir(archiveDir, { recursive: true });
+
+      const files = await fs.readdir(this.config.l1Dir);
+
+      for (const file of files) {
+        if (!file.endsWith(".md")) continue;
+
+        const filePath = path.join(this.config.l1Dir, file);
+        const stat = await fs.stat(filePath);
+        if (!stat.isFile()) continue;
+
+        // Archive old date files
+        const isDateFile = /^\d{4}-\d{2}-\d{2}\.md$/.test(file);
+        const isOld = stat.mtimeMs < cutoffTime;
+
+        if (isDateFile && isOld) {
+          await fs.rename(filePath, path.join(archiveDir, file));
+          actions.push(`archived: ${file}`);
+        }
+
+        // Archive test/temp files
+        if (/test|temp|tmp|backup/i.test(file) && !/^(projects|contacts|tasks|preferences)/.test(file)) {
+          await fs.rename(filePath, path.join(archiveDir, file));
+          actions.push(`archived temp: ${file}`);
+        }
+      }
+    } catch (error) {
+      console.error(`[MemoryOptimizer] archiveOldFiles error: ${error}`);
+    }
+
+    return actions;
+  }
+
+  /**
+   * Prune L0 file
+   */
+  private async pruneL0File(): Promise<string[]> {
+    const actions: string[] = [];
+
+    try {
+      const lineCount = await this.getFileLines(this.config.l0Path);
+      if (lineCount <= this.config.l0MaxLines) {
+        return actions;
+      }
+
+      const content = await fs.readFile(this.config.l0Path, "utf-8");
+      const lines = content.split("\n");
+
+      // Keep header (first 30 lines) + tail (last 50 lines)
+      const header = lines.slice(0, 30);
+      const tail = lines.slice(-50);
+
+      const pruned = [
+        ...header,
+        "",
+        "---",
+        `## 最近记录 (自动精简于 ${new Date().toISOString().slice(0, 10)})`,
+        ...tail,
+      ].join("\n");
+
+      await fs.writeFile(this.config.l0Path, pruned, "utf-8");
+      actions.push(`pruned L0: ${lineCount} -> ${pruned.split("\n").length} lines`);
+    } catch (error) {
+      console.error(`[MemoryOptimizer] pruneL0File error: ${error}`);
+    }
+
+    return actions;
+  }
+}
+
+// ============================================================================
+// Shell Script (for manual use only)
+// ============================================================================
 
 // Memory manager shell script template
 const MEMORY_MANAGER_SCRIPT = `#!/bin/bash
@@ -352,7 +699,7 @@ export interface SetupConfig {
 }
 
 /**
- * Get script path
+ * Get script path (for manual use)
  */
 function getScriptPath(): string {
   return path.join(os.homedir(), ".openclaw", "scripts", "memory_manager.sh");
@@ -371,109 +718,47 @@ async function scriptExists(): Promise<boolean> {
 }
 
 /**
- * Check if crontab is configured
- */
-async function crontabConfigured(): Promise<boolean> {
-  try {
-    const { stdout } = await execAsync("crontab -l 2>/dev/null || echo ''");
-    return stdout.includes("memory_manager.sh");
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Create the memory manager script
+ * Create the memory manager script (for manual/command-line use)
+ * Note: Automatic optimization is now handled by MemoryOptimizer class
  */
 async function createScript(config: SetupConfig): Promise<string> {
   const scriptPath = getScriptPath();
   const scriptsDir = path.dirname(scriptPath);
-  
+
   // Ensure directory exists
   await fs.mkdir(scriptsDir, { recursive: true });
-  
+
   // Write script with config embedded
   const script = MEMORY_MANAGER_SCRIPT
     .replace(/\$\{MEM0_SERVER_URL:-http:\/\/localhost:8000\}/, `\${MEM0_SERVER_URL:-${config.serverUrl}}`)
     .replace(/\$\{MEM0_API_KEY:-\}/, `\${MEM0_API_KEY:-${config.apiKey}}`)
     .replace(/\$\{MEM0_AGENT_ID:-openclaw-main\}/, `\${MEM0_AGENT_ID:-${config.agentId}}`);
-  
+
   await fs.writeFile(scriptPath, script, { mode: 0o755 });
-  
+
   return scriptPath;
 }
 
 /**
- * Setup crontab for automatic execution
- */
-async function setupCrontab(): Promise<boolean> {
-  const scriptPath = getScriptPath();
-  const cronEntry = `0 3 * * * ${scriptPath} >> ~/.openclaw/logs/memory_manager.log 2>&1`;
-  
-  try {
-    // Get current crontab
-    const { stdout: currentCrontab } = await execAsync("crontab -l 2>/dev/null || echo ''");
-    
-    // Check if already configured
-    if (currentCrontab.includes("memory_manager.sh")) {
-      console.log("[mem0-setup] Crontab already configured");
-      return true;
-    }
-    
-    // Add new entry
-    const newCrontab = (currentCrontab.trim() + "\n" + cronEntry).trim() + "\n";
-    await execAsync(`echo '${newCrontab}' | crontab -`);
-    
-    console.log("[mem0-setup] Crontab configured: daily at 3:00 AM");
-    return true;
-  } catch (error) {
-    console.error("[mem0-setup] Failed to setup crontab:", error);
-    return false;
-  }
-}
-
-/**
  * Run setup for first-time installation
+ * Creates script for manual use, but automatic optimization is trigger-based
  */
 export async function runSetup(config: SetupConfig): Promise<{
   scriptPath: string;
-  crontabConfigured: boolean;
 }> {
   const scriptPath = getScriptPath();
-  const scriptAlreadyExists = await scriptExists();
-  const crontabAlreadyConfigured = await crontabConfigured();
-  
-  // Create script if not exists
-  if (scriptAlreadyExists) {
-    console.log("[mem0-setup] Script already exists, skipping creation");
+  const alreadyExists = await scriptExists();
+
+  // Create script if not exists (for manual use)
+  if (alreadyExists) {
+    console.log("[mem0-setup] Script already exists");
   } else {
-    console.log("[mem0-setup] Creating memory_manager.sh...");
+    console.log("[mem0-setup] Creating memory_manager.sh for manual use...");
     await createScript(config);
     console.log(`[mem0-setup] Script created: ${scriptPath}`);
   }
-  
-  // Always ensure crontab is configured
-  if (crontabAlreadyConfigured) {
-    console.log("[mem0-setup] Crontab already configured");
-  } else {
-    console.log("[mem0-setup] Setting up crontab...");
-    await setupCrontab();
-  }
-  
-  // Run first-time optimization only if script was just created
-  if (!scriptAlreadyExists) {
-    console.log("[mem0-setup] Running initial memory optimization...");
-    try {
-      await execAsync(`bash ${scriptPath}`);
-    } catch (error) {
-      console.error("[mem0-setup] Initial optimization failed:", error);
-    }
-  }
-  
-  console.log("[mem0-setup] Setup complete!");
-  
-  return { 
-    scriptPath, 
-    crontabConfigured: await crontabConfigured() 
-  };
+
+  console.log("[mem0-setup] Setup complete! Automatic optimization is trigger-based (no cron needed).");
+
+  return { scriptPath };
 }

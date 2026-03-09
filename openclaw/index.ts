@@ -19,7 +19,7 @@
 import { Type } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { ServerClient } from "./lib/server-client.js";
-import { runSetup } from "./lib/setup.js";
+import { runSetup, MemoryOptimizer } from "./lib/setup.js";
 import { L0Manager } from "./lib/l0-manager.js";
 import { L1Manager } from "./lib/l1-manager.js";
 
@@ -780,7 +780,17 @@ const memoryPlugin = {
     const l0Manager = createL0Manager(cfg, api);
     const l1Manager = createL1Manager(cfg, api);
 
-    // Run first-time setup for memory_manager.sh
+    // Create MemoryOptimizer for trigger-based optimization
+    const memoryOptimizer = new MemoryOptimizer({
+      l0Path: api.resolvePath(cfg.l0Path || "memory.md"),
+      l1Dir: api.resolvePath(cfg.l1Dir || "memory"),
+      contextMaxKB: 100,
+      l1FileMaxKB: 50,
+      l1KeepRecentDays: 7,
+      l0MaxLines: 100,
+    });
+
+    // Run first-time setup for memory_manager.sh (for manual use)
     if (cfg.mode === "server" && cfg.serverUrl && cfg.serverApiKey) {
       runSetup({
         serverUrl: cfg.serverUrl,
@@ -1419,6 +1429,14 @@ const memoryPlugin = {
         if (sessionId) currentSessionId = sessionId;
 
         try {
+          // Trigger-based optimization: check and optimize if needed
+          const optimizationResult = await memoryOptimizer.checkAndOptimize();
+          if (optimizationResult) {
+            api.logger.info(
+              `openclaw-mem0: auto-optimized memory (saved ${optimizationResult.savedKB}KB)`,
+            );
+          }
+
           // Collect memory from all layers
           const contextParts: string[] = [];
 
@@ -1578,6 +1596,14 @@ const memoryPlugin = {
                 api.logger.info(
                   `openclaw-mem0: L1 auto-wrote to ${decision.categories.length} categories`,
                 );
+
+                // Trigger optimization after L1 write
+                const optResult = await memoryOptimizer.checkAndOptimize();
+                if (optResult) {
+                  api.logger.info(
+                    `openclaw-mem0: post-write optimization saved ${optResult.savedKB}KB`,
+                  );
+                }
               }
             }
           }

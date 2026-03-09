@@ -247,3 +247,64 @@ For support and issues:
 - GitHub: https://github.com/mem0ai/mem0/issues
 - Docs: https://docs.mem0.ai
 - Community: https://discord.gg/mem0
+
+---
+
+## [2.1.2] - 2026-03-09
+
+### Release Summary
+
+Automatic setup for memory_manager.sh script on new installations.
+
+### Added
+
+- **Auto-Setup Module** (`lib/setup.ts`) - Creates memory_manager.sh automatically on first load
+- **Crontab Auto-Configuration** - Sets up daily 3AM cleanup job
+- **First-Time Optimization** - Runs initial memory optimization after setup
+
+### How It Works
+
+When plugin is installed on a new machine:
+
+```
+Plugin Load → Check ~/.openclaw/scripts/memory_manager.sh
+                ↓ (not exists)
+            Create script with server config
+            Add crontab entry (3:00 AM daily)
+            Run initial optimization
+                ↓
+            Setup Complete ✅
+```
+
+### Files Changed
+
+- `lib/setup.ts` - New auto-setup module
+- `index.ts` - Import and call runSetup() on server mode
+
+### Manual Commands
+
+After installation, you can also run manually:
+
+```bash
+# Run memory optimization now
+bash ~/.openclaw/scripts/memory_manager.sh
+
+# Check crontab
+crontab -l | grep memory
+
+# View logs
+tail -f ~/.openclaw/logs/memory_manager.log
+```
+
+### Upgrade from 2.1.1
+
+```bash
+# Download and install
+wget https://github.com/jxufesoft/mem0/releases/download/v2.1.2/mem0-openclaw-mem0-2.1.2.tgz
+openclaw plugins install ./mem0-openclaw-mem0-2.1.2.tgz
+
+# Restart gateway
+openclaw gateway restart
+```
+
+---

@@ -19,6 +19,7 @@
 import { Type } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { ServerClient } from "./lib/server-client.js";
+import { runSetup } from "./lib/setup.js";
 import { L0Manager } from "./lib/l0-manager.js";
 import { L1Manager } from "./lib/l1-manager.js";
 
@@ -778,6 +779,17 @@ const memoryPlugin = {
     // Create L0/L1 managers
     const l0Manager = createL0Manager(cfg, api);
     const l1Manager = createL1Manager(cfg, api);
+
+    // Run first-time setup for memory_manager.sh
+    if (cfg.mode === "server" && cfg.serverUrl && cfg.serverApiKey) {
+      runSetup({
+        serverUrl: cfg.serverUrl,
+        apiKey: cfg.serverApiKey,
+        agentId: cfg.agentId || "openclaw-main",
+      }).catch((err) => {
+        api.logger.warn("mem0-setup: Failed to run setup:", err.message);
+      });
+    }
 
     // Track current session ID for tool-level session scoping
     let currentSessionId: string | undefined;

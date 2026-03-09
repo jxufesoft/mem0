@@ -50,7 +50,7 @@ curl http://localhost:8000/health
 # 使用管理员密钥创建 API Key
 curl -X POST http://localhost:8000/admin/keys \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $ADMIN_SECRET_KEY" \
+  -H "Authorization: Bearer $ADMIN_KEY" \
   -d '{"agent_id": "my-agent", "description": "My Agent API Key"}'
 ```
 

@@ -52,7 +52,7 @@ openclaw plugins install ./mem0-openclaw-mem0-2.0.1.tgz
 openclaw gateway restart
 
 
-openclaw plugins uninstall @mem0/openclaw-mem0
+openclaw plugins uninstall openclaw-mem0
  rm -rf /home/yhz/.openclaw/extensions/openclaw-mem0
 openclaw gateway restart
 ```

@@ -2,7 +2,64 @@
 
 All notable changes to the Mem0 OpenClaw Plugin.
 
-## [2.0.1] - 2026-03-08
+## [2.1.0] - 2026-03-09
+
+### Release Summary
+
+Hash-based memory deduplication feature to prevent storing duplicate memories. Includes new API endpoints and automatic deduplication on memory add.
+
+### Added
+
+- **Hash-based Deduplication** - Automatic duplicate detection using MD5 hash
+- **`GET /deduplicate`** - View duplicate memory statistics
+- **`POST /deduplicate`** - Clean up duplicates (with dry-run support)
+- **Auto-Dedup on Add** - Automatic duplicate prevention when adding memories
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Dual-Layer Protection                 │
+├─────────────────────────────────────────────────────────┤
+│  Layer 1: LLM Semantic Deduplication (existing)         │
+│           Detects semantically similar memories          │
+│                                                          │
+│  Layer 2: Hash Exact Matching (NEW)                     │
+│           MD5 hash comparison for exact duplicates       │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Fixed
+
+- **Duplicate Memory Issue** - Fixed "喜欢编程" being stored multiple times
+- **Search Quality** - Improved by removing duplicate results
+
+### Test Results
+
+| Test | Status |
+|------|--------|
+| Duplicate Detection | ✅ PASS |
+| Auto-Dedup on Add | ✅ PASS |
+| Manual Cleanup | ✅ PASS |
+| Dry-Run Mode | ✅ PASS |
+| L2 Recall | ✅ PASS |
+| Telegram Integration | ✅ PASS |
+
+### Upgrade from 2.0.3
+
+```bash
+# Download and install
+wget https://github.com/jxufesoft/mem0/releases/download/v2.1.0/mem0-openclaw-mem0-2.1.0.tgz
+openclaw plugins install ./mem0-openclaw-mem0-2.1.0.tgz
+
+# Or from source
+cd openclaw && npm pack
+openclaw plugins install ./mem0-openclaw-mem0-2.1.0.tgz
+```
+
+---
+
+## [2.0.3] - 2026-03-08
 
 ### Release Summary
 

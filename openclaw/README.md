@@ -74,6 +74,72 @@ openclaw config set plugins.entries.openclaw-mem0.config.serverUrl http://localh
 openclaw config set plugins.entries.openclaw-mem0.config.serverApiKey your-api-key
 openclaw config set plugins.entries.openclaw-mem0.config.agentId openclaw-main
 ```
+### 修改openclaw.json配置如下
+```json
+"plugins": {
+    "allow": [
+      "telegram",
+      "feishu",
+      "google-gemini-cli-auth",
+      "openclaw-mem0"
+    ],
+    "slots": {
+      "memory": "openclaw-mem0"
+    },
+    "entries": {
+      "openclaw-mem0": {
+        "enabled": true,
+        "config": {
+          "mode": "server",
+          "serverUrl": "http://192.168.24.117:8000",
+          "serverApiKey": "mem0__S-Pkbxk9LmQtLsNBzrLnUzEyrvOnlAbW4x25Pbb8hc",
+          "userId": "default",
+          "agentId": "openbot",
+          "autoRecall": true,
+          "autoCapture": true,
+          "topK": 10,
+          "searchThreshold": 0.2,
+          "l0Enabled": true,
+          "l0Path": "/home/yhz/.openclaw/workspace/memory.md",
+          "l1Enabled": true,
+          "l1Dir": "/home/yhz/.openclaw/workspace/memory",
+          "l1RecentDays": 30,
+          "l1Categories": [
+            "projects",
+            "contacts",
+            "tasks",
+            "preferences"
+          ],
+          "l1AutoWrite": true
+        }
+      },
+      "memory-core": {
+        "enabled": false
+      },
+      "memory-lancedb": {
+        "enabled": false
+      },
+      "telegram": {
+        "enabled": true
+      },
+      "feishu": {
+        "enabled": true
+      },
+      "google-gemini-cli-auth": {
+        "enabled": true
+      }
+    },
+    "installs": {
+      "openclaw-mem0": {
+        "source": "archive",
+        "sourcePath": "/home/yhz/mem0/mem0-openclaw-mem0-2.1.1.tgz",
+        "installPath": "/home/yhz/.openclaw/extensions/openclaw-mem0",
+        "version": "2.1.1",
+        "installedAt": "2026-03-09T07:49:13.056Z"
+      }
+    }
+  }
+```
 
 > **注意**: Mem0 Server 默认绑定到 `0.0.0.0:8000`，可以从局域网或外部访问。
 > 本地访问使用 `http://localhost:8000`，远程访问使用 `http://YOUR_SERVER_IP:8000`。

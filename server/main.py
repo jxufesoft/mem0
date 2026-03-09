@@ -587,6 +587,77 @@ async def revoke_api_key(req: RevokeKeyRequest):
 # Memory Endpoints (需要 API Key 认证)
 # ============================================================================
 
+# ============================================================================
+# Deduplication Helper Functions
+# ============================================================================
+
+import hashlib
+
+def compute_memory_hash(data: str) -> str:
+    """Compute MD5 hash for memory content."""
+    return hashlib.md5(data.encode()).hexdigest()
+
+
+async def find_duplicates_by_hash(memory_instance, agent_id: str, user_id: Optional[str] = None) -> Dict[str, List[str]]:
+    """
+    Find duplicate memories by hash.
+
+    Returns a dict mapping hash -> list of memory IDs with that hash.
+    Only includes hashes with more than one memory (actual duplicates).
+    """
+    try:
+        # Get all memories for this agent/user
+        params = {"agent_id": agent_id}
+        if user_id:
+            params["user_id"] = user_id
+
+        all_memories = memory_instance.get_all(**params)
+        results = all_memories.get("results", [])
+
+        # Group by hash
+        hash_to_ids = {}
+        for mem in results:
+            mem_hash = mem.get("hash")
+            if mem_hash:
+                if mem_hash not in hash_to_ids:
+                    hash_to_ids[mem_hash] = []
+                hash_to_ids[mem_hash].append({
+                    "id": mem["id"],
+                    "memory": mem.get("memory", ""),
+                    "created_at": mem.get("created_at", "")
+                })
+
+        # Filter to only duplicates
+        duplicates = {h: ids for h, ids in hash_to_ids.items() if len(ids) > 1}
+        return duplicates
+    except Exception as e:
+        logger.error(f"Error finding duplicates: {e}")
+        return {}
+
+
+async def check_memory_exists_by_hash(memory_instance, content_hash: str, agent_id: str, user_id: Optional[str] = None) -> Optional[Dict]:
+    """
+    Check if a memory with the given hash already exists.
+
+    Returns the existing memory if found, None otherwise.
+    """
+    try:
+        params = {"agent_id": agent_id}
+        if user_id:
+            params["user_id"] = user_id
+
+        all_memories = memory_instance.get_all(**params)
+        results = all_memories.get("results", [])
+
+        for mem in results:
+            if mem.get("hash") == content_hash:
+                return mem
+        return None
+    except Exception as e:
+        logger.error(f"Error checking memory by hash: {e}")
+        return None
+
+
 @app.post("/configure", summary="配置 Mem0", dependencies=[Depends(get_api_key)])
 async def set_config(config: Dict[str, Any]):
     """
@@ -604,6 +675,7 @@ async def add_memory(memory_create: MemoryCreate, request: Request):
     存储新的记忆。
 
     从消息中提取事实并存储到向量数据库。
+    自动进行 hash 去重，避免存储完全相同的记忆。
 
     **必需参数**: 至少提供 user_id、agent_id 或 run_id 之一。
     """
@@ -612,11 +684,50 @@ async def add_memory(memory_create: MemoryCreate, request: Request):
 
     # Get agent instance for this agent_id
     agent_id = memory_create.agent_id or "default"
+    user_id = memory_create.user_id
     memory_instance = await get_agent_instance(agent_id)
 
     params = {k: v for k, v in memory_create.model_dump().items() if v is not None and k != "messages"}
     try:
         response = memory_instance.add(messages=[m.model_dump() for m in memory_create.messages], **params)
+
+        # Post-process: Auto deduplication for newly added memories
+        results = response.get("results", [])
+        dedup_stats = {"checked": 0, "duplicates_removed": 0}
+
+        for i, result in enumerate(results):
+            if result.get("event") == "ADD":
+                dedup_stats["checked"] += 1
+                new_memory_id = result.get("id")
+                new_memory_content = result.get("memory", "")
+                new_hash = compute_memory_hash(new_memory_content)
+
+                # Check if a memory with the same hash already existed before this add
+                existing = await check_memory_exists_by_hash(
+                    memory_instance, new_hash, agent_id, user_id
+                )
+
+                if existing and existing.get("id") != new_memory_id:
+                    # Found a duplicate - delete the newly created one
+                    try:
+                        memory_instance.delete(memory_id=new_memory_id)
+                        dedup_stats["duplicates_removed"] += 1
+                        logger.info(f"Auto-dedup: Removed duplicate memory {new_memory_id} ('{new_memory_content[:30]}...'), keeping {existing['id']}")
+
+                        # Update the result to indicate dedup
+                        results[i] = {
+                            "id": existing["id"],
+                            "memory": new_memory_content,
+                            "event": "NOOP",
+                            "reason": "duplicate_detected",
+                            "existing_memory_id": existing["id"]
+                        }
+                    except Exception as e:
+                        logger.error(f"Failed to delete duplicate memory {new_memory_id}: {e}")
+
+        if dedup_stats["duplicates_removed"] > 0:
+            logger.info(f"Auto-dedup summary: checked {dedup_stats['checked']}, removed {dedup_stats['duplicates_removed']} duplicates")
+
         return JSONResponse(content=response)
     except Exception as e:
         logger.exception(f"Error in add_memory for agent {agent_id}:")
@@ -787,6 +898,97 @@ async def reset_memory(agent_id: Optional[str] = "default"):
         return {"message": "All memories reset"}
     except Exception as e:
         logger.exception(f"Error in reset_memory for agent {agent_id}:")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Deduplication Endpoints
+# ============================================================================
+
+@app.get("/deduplicate", summary="查找重复记忆", dependencies=[Depends(get_api_key)])
+async def find_duplicates(
+    agent_id: Optional[str] = "default",
+    user_id: Optional[str] = None,
+):
+    """
+    查找指定 Agent/User 的重复记忆。
+
+    返回所有具有相同 hash 的记忆组（每组 2 个或更多）。
+    """
+    memory_instance = await get_agent_instance(agent_id)
+    try:
+        duplicates = await find_duplicates_by_hash(memory_instance, agent_id, user_id)
+
+        total_duplicates = sum(len(ids) - 1 for ids in duplicates.values())
+        return {
+            "total_duplicate_count": total_duplicates,
+            "duplicate_groups": len(duplicates),
+            "duplicates": duplicates
+        }
+    except Exception as e:
+        logger.exception(f"Error finding duplicates for agent {agent_id}:")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/deduplicate", summary="清理重复记忆", dependencies=[Depends(get_api_key)])
+async def cleanup_duplicates(
+    agent_id: Optional[str] = "default",
+    user_id: Optional[str] = None,
+    dry_run: bool = True,
+):
+    """
+    清理重复记忆，只保留每组中最早创建的那条。
+
+    Args:
+        agent_id: Agent ID
+        user_id: User ID (optional)
+        dry_run: 如果为 True（默认），只返回将被删除的记忆，不实际删除
+
+    Returns:
+        删除的记忆数量和详情
+    """
+    memory_instance = await get_agent_instance(agent_id)
+    try:
+        duplicates = await find_duplicates_by_hash(memory_instance, agent_id, user_id)
+
+        deleted_count = 0
+        deleted_memories = []
+
+        for content_hash, mem_list in duplicates.items():
+            # Sort by created_at, keep the oldest one
+            sorted_mems = sorted(mem_list, key=lambda x: x.get("created_at", ""))
+            # Delete all but the first (oldest)
+            for mem in sorted_mems[1:]:
+                if not dry_run:
+                    try:
+                        memory_instance.delete(memory_id=mem["id"])
+                        deleted_count += 1
+                        deleted_memories.append({
+                            "id": mem["id"],
+                            "memory": mem["memory"],
+                            "hash": content_hash
+                        })
+                        logger.info(f"Deleted duplicate memory {mem['id']}: {mem['memory']}")
+                    except Exception as e:
+                        logger.error(f"Failed to delete memory {mem['id']}: {e}")
+                else:
+                    deleted_count += 1
+                    deleted_memories.append({
+                        "id": mem["id"],
+                        "memory": mem["memory"],
+                        "hash": content_hash,
+                        "would_delete": True
+                    })
+
+        return {
+            "dry_run": dry_run,
+            "deleted_count": deleted_count if not dry_run else 0,
+            "would_delete_count": deleted_count,
+            "deleted_memories": deleted_memories,
+            "message": "Dry run completed - no memories deleted" if dry_run else f"Deleted {deleted_count} duplicate memories"
+        }
+    except Exception as e:
+        logger.exception(f"Error cleaning duplicates for agent {agent_id}:")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -2,6 +2,165 @@
 
 All notable changes to the Mem0 OpenClaw Plugin.
 
+## [2.2.0] - 2026-03-09
+
+### Release Summary
+
+Replace cron-based with trigger-based memory optimization for real-time automatic memory management. The `MemoryOptimizer` class now automatically optimizes L0/L1 memory when context exceeds threshold, without requiring scheduled jobs.
+
+### Added
+
+- **MemoryOptimizer Class** (`lib/setup.ts`) - TypeScript-based trigger optimization
+  - `checkAndOptimize()` - Check and optimize if needed (with rate limiting)
+  - `optimize()` - Force optimization regardless of threshold
+  - `getContextSize()` - Get L0/L1/total size in bytes
+  - `needsOptimization()` - Check if optimization is needed
+
+- **Trigger-Based Optimization** - Automatic optimization on:
+  1. `buildSystemPrompt` - Every conversation start
+  2. `agent_end` - After L1 auto-write
+
+- **Rate Limiting** - Minimum 1 minute between optimizations to prevent performance impact
+
+- **Optimization Operations**:
+  - `compressL1Files()` - Compress files > 50KB
+  - `deduplicateL1Content()` - Remove duplicate lines
+  - `archiveOldFiles()` - Archive files > 7 days old
+  - `pruneL0File()` - Prune L0 to max 100 lines
+
+### Changed
+
+- **Removed Cron Dependency** - No longer uses scheduled jobs
+- **runSetup() Return Type** - Simplified to `{ scriptPath: string }` (removed `crontabConfigured`)
+- **Shell Script Role** - Now for manual use only, not automatic scheduling
+
+### Performance
+
+| Operation | Time | Notes |
+|-----------|------|-------|
+| getContextSize (600KB) | 1ms | File stat operations |
+| optimize (600KB→5KB) | 14ms | Full optimization cycle |
+| Compression Rate | 89-99% | Typical reduction |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                  Trigger-Based Optimization                  │
+├─────────────────────────────────────────────────────────────┤
+│  Trigger 1: buildSystemPrompt (conversation start)          │
+│  Trigger 2: agent_end + L1 auto-write                       │
+│                                                             │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐     │
+│  │ Check Size  │ →  │ Rate Limit  │ →  │  Optimize   │     │
+│  │ (>100KB?)   │    │  (1 min)    │    │  if needed  │     │
+│  └─────────────┘    └─────────────┘    └─────────────┘     │
+│                                                             │
+│  Operations: compress → dedup → archive → prune             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Test Results
+
+| Test Suite | Tests | Status |
+|------------|-------|--------|
+| Functional Tests | 11 | ✅ PASS |
+| Edge Case Tests | 4 | ✅ PASS |
+| **Total** | **15** | ✅ **100%** |
+
+### Upgrade from 2.1.2
+
+```bash
+# Remove old cron entry (no longer needed)
+crontab -l | grep -v memory_manager.sh | crontab -
+
+# Install new version
+wget https://github.com/jxufesoft/mem0/releases/download/v2.2.0/mem0-openclaw-mem0-2.2.0.tgz
+openclaw plugins install ./mem0-openclaw-mem0-2.2.0.tgz
+
+# Restart gateway
+openclaw gateway restart
+```
+
+### Manual Commands
+
+Shell script still available for manual use:
+
+```bash
+# Check context status
+bash ~/.openclaw/scripts/memory_manager.sh context
+
+# Force optimization
+bash ~/.openclaw/scripts/memory_manager.sh optimize
+
+# Individual operations
+bash ~/.openclaw/scripts/memory_manager.sh compress
+bash ~/.openclaw/scripts/memory_manager.sh dedup
+bash ~/.openclaw/scripts/memory_manager.sh archive
+bash ~/.openclaw/scripts/memory_manager.sh prune
+```
+
+---
+
+## [2.1.2] - 2026-03-09
+
+### Release Summary
+
+Automatic setup for memory_manager.sh script on new installations.
+
+### Added
+
+- **Auto-Setup Module** (`lib/setup.ts`) - Creates memory_manager.sh automatically on first load
+- **Crontab Auto-Configuration** - Sets up daily 3AM cleanup job
+- **First-Time Optimization** - Runs initial memory optimization after setup
+
+### How It Works
+
+When plugin is installed on a new machine:
+
+```
+Plugin Load → Check ~/.openclaw/scripts/memory_manager.sh
+                ↓ (not exists)
+            Create script with server config
+            Add crontab entry (3:00 AM daily)
+            Run initial optimization
+                ↓
+            Setup Complete ✅
+```
+
+### Files Changed
+
+- `lib/setup.ts` - New auto-setup module
+- `index.ts` - Import and call runSetup() on server mode
+
+### Manual Commands
+
+After installation, you can also run manually:
+
+```bash
+# Run memory optimization now
+bash ~/.openclaw/scripts/memory_manager.sh
+
+# Check crontab
+crontab -l | grep memory
+
+# View logs
+tail -f ~/.openclaw/logs/memory_manager.log
+```
+
+### Upgrade from 2.1.1
+
+```bash
+# Download and install
+wget https://github.com/jxufesoft/mem0/releases/download/v2.1.2/mem0-openclaw-mem0-2.1.2.tgz
+openclaw plugins install ./mem0-openclaw-mem0-2.1.2.tgz
+
+# Restart gateway
+openclaw gateway restart
+```
+
+---
+
 ## [2.1.0] - 2026-03-09
 
 ### Release Summary

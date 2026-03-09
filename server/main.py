@@ -996,3 +996,149 @@ async def cleanup_duplicates(
 async def home():
     """Redirect to the OpenAPI documentation."""
     return RedirectResponse(url="/docs")
+
+
+# ============================================================================
+# Memory Management Endpoints
+# ============================================================================
+
+@app.get("/memory/stats", summary="获取记忆统计", dependencies=[Depends(get_api_key)])
+async def get_memory_stats():
+    """
+    获取 L0/L1/L2 三层记忆的统计信息。
+    """
+    import os
+    from datetime import datetime
+    
+    memory_dir = os.path.expanduser("~/.openclaw/workspace/memory")
+    l0_file = os.path.expanduser("~/.openclaw/workspace/memory.md")
+    
+    stats = {
+        "timestamp": datetime.now().isoformat(),
+        "l0": {},
+        "l1": {},
+        "l2": {}
+    }
+    
+    # L0 stats
+    if os.path.exists(l0_file):
+        stats["l0"] = {
+            "size_bytes": os.path.getsize(l0_file),
+            "size_kb": round(os.path.getsize(l0_file) / 1024, 2),
+            "exists": True
+        }
+    else:
+        stats["l0"] = {"exists": False}
+    
+    # L1 stats
+    if os.path.exists(memory_dir):
+        files = [f for f in os.listdir(memory_dir) if f.endswith('.md')]
+        total_size = sum(
+            os.path.getsize(os.path.join(memory_dir, f))
+            for f in files if os.path.isfile(os.path.join(memory_dir, f))
+        )
+        stats["l1"] = {
+            "total_files": len(files),
+            "total_size_bytes": total_size,
+            "total_size_kb": round(total_size / 1024, 2)
+        }
+    else:
+        stats["l1"] = {"exists": False}
+    
+    # L2 stats (from current agent)
+    try:
+        params = {"agent_id": "openclaw-main"}
+        all_memories = memory_instance.get_all(**params) if 'memory_instance' in dir() else {"results": []}
+        stats["l2"] = {
+            "total_memories": len(all_memories.get("results", [])),
+            "status": "connected"
+        }
+    except Exception as e:
+        stats["l2"] = {"status": "error", "message": str(e)}
+    
+    return stats
+
+
+@app.post("/memory/optimize", summary="优化记忆", dependencies=[Depends(get_api_key)])
+async def optimize_memory(
+    dry_run: bool = True,
+    archive_days: int = 14,
+    l0_max_lines: int = 100
+):
+    """
+    执行记忆优化：
+    - 归档旧文件
+    - 精简 L0
+    - L2 去重
+    """
+    import os
+    import shutil
+    from datetime import datetime, timedelta
+    
+    results = {
+        "dry_run": dry_run,
+        "timestamp": datetime.now().isoformat(),
+        "operations": []
+    }
+    
+    memory_dir = os.path.expanduser("~/.openclaw/workspace/memory")
+    l0_file = os.path.expanduser("~/.openclaw/workspace/memory.md")
+    archive_dir = os.path.join(memory_dir, "archive", datetime.now().strftime('%Y-%m'))
+    
+    # 1. Archive old files
+    if os.path.exists(memory_dir):
+        archived_count = 0
+        cutoff_date = datetime.now() - timedelta(days=archive_days)
+        test_patterns = ['test', 'Test', 'TEST', 'report', 'Report', 'summary', 'Summary', 'final', 'Final', 'plugin', 'Plugin']
+        
+        for filename in os.listdir(memory_dir):
+            filepath = os.path.join(memory_dir, filename)
+            if not os.path.isfile(filepath):
+                continue
+            
+            # Check if it's a test file or old date file
+            is_test = any(p in filename for p in test_patterns)
+            is_old_date = filename.startswith('20') and datetime.fromtimestamp(os.path.getmtime(filepath)) < cutoff_date
+            
+            if is_test or is_old_date:
+                if not dry_run:
+                    os.makedirs(archive_dir, exist_ok=True)
+                    shutil.move(filepath, os.path.join(archive_dir, filename))
+                archived_count += 1
+        
+        if archived_count > 0:
+            results["operations"].append({
+                "operation": "archive_l1",
+                "files_archived": archived_count,
+                "dry_run": dry_run
+            })
+    
+    # 2. Prune L0
+    if os.path.exists(l0_file):
+        with open(l0_file, 'r') as f:
+            lines = f.readlines()
+        
+        if len(lines) > l0_max_lines:
+            if not dry_run:
+                # Keep header and recent entries
+                header = lines[:20]
+                recent = lines[-(l0_max_lines - 25):]
+                new_content = header + ["\n## Auto-pruned entries\n\n"] + recent
+                with open(l0_file, 'w') as f:
+                    f.writelines(new_content)
+            
+            results["operations"].append({
+                "operation": "prune_l0",
+                "original_lines": len(lines),
+                "new_lines": l0_max_lines,
+                "reduced_by": len(lines) - l0_max_lines,
+                "dry_run": dry_run
+            })
+    
+    # 3. L2 dedup (already handled by /deduplicate endpoint)
+    results["operations"].append({
+        "operation": "dedup_l2",
+        "message": "Use POST /deduplicate endpoint for L2 deduplication"
+    })
+    
+    return results

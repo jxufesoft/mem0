@@ -161,4 +161,68 @@ export class L0Manager {
 
     return facts;
   }
+
+  /**
+   * Auto-prune L0 file to keep it concise
+   * Keeps header and most recent entries
+   */
+  async prune(maxLines: number = 100): Promise<{ pruned: boolean; originalLines: number; newLines: number }> {
+    if (!this.config.enabled) {
+      return { pruned: false, originalLines: 0, newLines: 0 };
+    }
+
+    try {
+      const content = await this.readAll();
+      const lines = content.split("\n");
+
+      if (lines.length <= maxLines) {
+        return { pruned: false, originalLines: lines.length, newLines: lines.length };
+      }
+
+      // Keep header (first 20 lines) and recent entries
+      const header = lines.slice(0, 20);
+      const recent = lines.slice(-(maxLines - 25));
+      const newContent = [
+        ...header,
+        "",
+        "## Auto-pruned Recent Entries",
+        "",
+        "> Older entries have been archived. Contact system for full history.",
+        "",
+        ...recent
+      ].join("\n");
+
+      await this.overwrite(newContent);
+
+      return {
+        pruned: true,
+        originalLines: lines.length,
+        newLines: maxLines
+      };
+    } catch (error) {
+      console.error(`Failed to prune L0: ${error}`);
+      return { pruned: false, originalLines: 0, newLines: 0 };
+    }
+  }
+
+  /**
+   * Get statistics about L0
+   */
+  async getStats(): Promise<{ sizeBytes: number; lineCount: number; exists: boolean }> {
+    if (!this.config.enabled) {
+      return { sizeBytes: 0, lineCount: 0, exists: false };
+    }
+
+    try {
+      const stats = await fs.stat(this.filePath);
+      const content = await this.readAll();
+      return {
+        sizeBytes: stats.size,
+        lineCount: content.split("\n").length,
+        exists: true
+      };
+    } catch {
+      return { sizeBytes: 0, lineCount: 0, exists: false };
+    }
+  }
 }

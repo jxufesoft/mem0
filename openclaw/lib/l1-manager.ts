@@ -307,4 +307,134 @@ export class L1Manager {
 
     return decision;
   }
+
+  /**
+   * Archive old files to archive subdirectory
+   * Returns count of archived files
+   */
+  async archiveOldFiles(maxAgeDays: number = 14): Promise<{ archivedCount: number; archivedFiles: string[] }> {
+    if (!this.config.enabled) {
+      return { archivedCount: 0, archivedFiles: [] };
+    }
+
+    try {
+      await this.ensureDir();
+      const archiveDir = path.join(this.dirPath, "archive", new Date().toISOString().slice(0, 7));
+      await fs.mkdir(archiveDir, { recursive: true });
+
+      const files = await fs.readdir(this.dirPath);
+      const cutoffTime = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+      const archivedFiles: string[] = [];
+
+      // Patterns for files that should be archived
+      const testPatterns = /test|report|summary|final|plugin/i;
+
+      for (const file of files) {
+        if (!file.endsWith(".md")) continue;
+
+        const filePath = path.join(this.dirPath, file);
+        const stats = await fs.stat(filePath);
+
+        // Archive if: old date file OR test/report file
+        const isOldDateFile = file.match(/^\d{4}-\d{2}-\d{2}\.md$/) && stats.mtimeMs < cutoffTime;
+        const isTestFile = testPatterns.test(file) && !this.config.categories.some(c => file.startsWith(c));
+
+        if (isOldDateFile || isTestFile) {
+          await fs.rename(filePath, path.join(archiveDir, file));
+          archivedFiles.push(file);
+        }
+      }
+
+      return { archivedCount: archivedFiles.length, archivedFiles };
+    } catch (error) {
+      console.error(`Failed to archive L1 files: ${error}`);
+      return { archivedCount: 0, archivedFiles: [] };
+    }
+  }
+
+  /**
+   * Get statistics about L1 directory
+   */
+  async getStats(): Promise<{
+    totalFiles: number;
+    totalSizeBytes: number;
+    dateFiles: number;
+    categoryFiles: number;
+    otherFiles: number;
+  }> {
+    if (!this.config.enabled) {
+      return { totalFiles: 0, totalSizeBytes: 0, dateFiles: 0, categoryFiles: 0, otherFiles: 0 };
+    }
+
+    try {
+      await this.ensureDir();
+      const files = await fs.readdir(this.dirPath);
+      let totalSize = 0;
+      let dateFiles = 0;
+      let categoryFiles = 0;
+      let otherFiles = 0;
+
+      for (const file of files) {
+        if (!file.endsWith(".md")) continue;
+
+        const filePath = path.join(this.dirPath, file);
+        const stats = await fs.stat(filePath);
+        totalSize += stats.size;
+
+        if (file.match(/^\d{4}-\d{2}-\d{2}\.md$/)) {
+          dateFiles++;
+        } else if (this.config.categories.some(c => file.startsWith(c))) {
+          categoryFiles++;
+        } else {
+          otherFiles++;
+        }
+      }
+
+      return {
+        totalFiles: dateFiles + categoryFiles + otherFiles,
+        totalSizeBytes: totalSize,
+        dateFiles,
+        categoryFiles,
+        otherFiles
+      };
+    } catch (error) {
+      console.error(`Failed to get L1 stats: ${error}`);
+      return { totalFiles: 0, totalSizeBytes: 0, dateFiles: 0, categoryFiles: 0, otherFiles: 0 };
+    }
+  }
+
+  /**
+   * Clean up test and temporary files
+   */
+  async cleanup(): Promise<{ removedCount: number; removedFiles: string[] }> {
+    if (!this.config.enabled) {
+      return { removedCount: 0, removedFiles: [] };
+    }
+
+    try {
+      await this.ensureDir();
+      const files = await fs.readdir(this.dirPath);
+      const testPatterns = /test|stress|batch|encoding|structure|comprehensive/i;
+      const removedFiles: string[] = [];
+
+      for (const file of files) {
+        if (!file.endsWith(".md")) continue;
+
+        // Skip category files and recent date files
+        if (this.config.categories.some(c => file.startsWith(c))) continue;
+        if (file.match(/^\d{4}-\d{2}-\d{2}\.md$/)) continue;
+
+        if (testPatterns.test(file)) {
+          const filePath = path.join(this.dirPath, file);
+          await fs.unlink(filePath);
+          removedFiles.push(file);
+        }
+      }
+
+      return { removedCount: removedFiles.length, removedFiles };
+    } catch (error) {
+      console.error(`Failed to cleanup L1 files: ${error}`);
+      return { removedCount: 0, removedFiles: [] };
+    }
+  }
 }

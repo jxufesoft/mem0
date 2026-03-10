@@ -118,7 +118,19 @@
     "oss": {
       "label": "Open-Source Configuration",
       "advanced": true,
-      "help": "Optional. Configure custom embedder, vector store, LLM, or history DB for open-source mode. Has sensible defaults — only override what you need."
+      "help": "Optional. Configure custom embedder, vector store, LLM, or history DB for open-source mode. Has sensible defaults \u2014 only override what you need."
+    },
+    "contextThresholdKB": {
+      "label": "Context Threshold (KB)",
+      "placeholder": "50",
+      "advanced": true,
+      "help": "Context size threshold in KB to trigger optimization. Default: 50"
+    },
+    "messageThreshold": {
+      "label": "Message Threshold",
+      "placeholder": "10",
+      "advanced": true,
+      "help": "Message count threshold to trigger optimization. Default: 10"
     }
   },
   "configSchema": {
@@ -245,6 +257,12 @@
             "type": "string"
           }
         }
+      },
+      "contextThresholdKB": {
+        "type": "number"
+      },
+      "messageThreshold": {
+        "type": "number"
       }
     },
     "required": []

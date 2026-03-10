@@ -22,7 +22,7 @@ const SCRIPT_VERSION = "1.3.0";
 export interface OptimizerConfig {
   l0Path: string;           // L0 file path (memory.md)
   l1Dir: string;            // L1 directory path
-  contextMaxKB: number;     // Max context size in KB (default: 100)
+  contextMaxKB: number;     // Max context size in KB (default: 50)
   l1FileMaxKB: number;      // Max single L1 file size in KB (default: 50)
   l1KeepRecentDays: number; // Keep L1 files for N days (default: 7)
   l0MaxLines: number;       // Max L0 lines (default: 100)
@@ -46,10 +46,12 @@ export class MemoryOptimizer {
   private config: OptimizerConfig;
   private lastOptimization: number = 0;
   private minIntervalMs: number = 60 * 1000; // Min 1 min between optimizations
+  private messageCount: number = 0;
+  private messageThreshold: number = 10;  // Trigger after 10 messages
 
   constructor(config: Partial<OptimizerConfig> & { l0Path: string; l1Dir: string }) {
     this.config = {
-      contextMaxKB: 100,
+      contextMaxKB: 50,
       l1FileMaxKB: 50,
       l1KeepRecentDays: 7,
       l0MaxLines: 100,
@@ -118,12 +120,29 @@ export class MemoryOptimizer {
   }
 
   /**
+   * Update message count (call this after each user message)
+   */
+  updateMessageCount(count: number): void {
+    this.messageCount = count;
+  }
+
+  /**
+   * Set message threshold (can be overridden from config)
+   */
+  setMessageThreshold(threshold: number): void {
+    this.messageThreshold = threshold;
+  }
+
+  /**
    * Check if optimization is needed
+   * Triggers when: context exceeds threshold OR message count exceeds threshold
    */
   async needsOptimization(): Promise<boolean> {
     const { totalBytes } = await this.getContextSize();
     const maxBytes = this.config.contextMaxKB * 1024;
-    return totalBytes > maxBytes;
+    const needsBySize = totalBytes > maxBytes;
+    const needsByMessages = this.messageCount > this.messageThreshold;
+    return needsBySize || needsByMessages;
   }
 
   /**
@@ -863,11 +882,44 @@ async function createScript(config: SetupConfig): Promise<string> {
 }
 
 /**
- * Run setup for first-time installation
- * Creates script for manual use, but automatic optimization is trigger-based
+ * Run initial cleanup/optimization on first install or load
+ * This reduces context size to acceptable levels after plugin initialization
  */
-export async function runSetup(config: SetupConfig): Promise<{
+export async function runInitialOptimization(optimizer: MemoryOptimizer): Promise<{
+  originalSizeKB: number;
+  newSizeKB: number;
+  savedKB: number;
+}> {
+  const { totalBytes: originalBytes } = await optimizer.getContextSize();
+
+  console.log(`[mem0-setup] Initial optimization: ${Math.round(originalBytes / 1024)}KB current size`);
+
+  // Run optimization (force optimization regardless of threshold)
+  const result = await optimizer.optimize();
+
+  const { totalBytes: newBytes } = await optimizer.getContextSize();
+  const savedKB = Math.round((originalBytes - newBytes) / 1024);
+
+  console.log(`[mem0-setup] Initial optimization complete: ${Math.round(originalBytes / 1024)}KB -> ${Math.round(newBytes / 1024)}KB (saved ${savedKB}KB)`);
+
+  return {
+    originalSizeKB: Math.round(originalBytes / 1024),
+    newSizeKB: Math.round(newBytes / 1024),
+    savedKB,
+  };
+}
+
+/**
+ * Run setup for first-time installation
+ * Creates script for manual use, runs initial optimization to reduce context size
+ */
+export async function runSetup(config: SetupConfig, optimizer?: MemoryOptimizer): Promise<{
   scriptPath: string;
+  optimizationResult?: {
+    originalSizeKB: number;
+    newSizeKB: number;
+    savedKB: number;
+  };
 }> {
   const scriptPath = getScriptPath();
   const alreadyExists = await scriptExists();
@@ -881,7 +933,14 @@ export async function runSetup(config: SetupConfig): Promise<{
     console.log(`[mem0-setup] Script created: ${scriptPath}`);
   }
 
+  // Run initial optimization if optimizer is provided
+  let optimizationResult;
+  if (optimizer) {
+    console.log("[mem0-setup] Running initial optimization...");
+    optimizationResult = await runInitialOptimization(optimizer);
+  }
+
   console.log("[mem0-setup] Setup complete! Automatic optimization is trigger-based (no cron needed).");
 
-  return { scriptPath };
+  return { scriptPath, optimizationResult };
 }

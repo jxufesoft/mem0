@@ -65,6 +65,9 @@ type Mem0Config = {
   autoRecall: boolean;
   searchThreshold: number;
   topK: number;
+  // Optimization triggers
+  contextThresholdKB?: number;  // Context size threshold in KB (default: 50)
+  messageThreshold?: number;    // Message count threshold (default: 10)
 };
 
 // Unified types for the provider interface
@@ -595,6 +598,9 @@ const ALLOWED_KEYS = [
   "l1RecentDays",
   "l1Categories",
   "l1AutoWrite",
+  // Optimization triggers
+  "contextThresholdKB",
+  "messageThreshold",
 ];
 
 function assertAllowedKeys(
@@ -701,6 +707,9 @@ const mem0ConfigSchema = {
       l1RecentDays: typeof cfg.l1RecentDays === "number" ? cfg.l1RecentDays : 7,
       l1Categories: Array.isArray(cfg.l1Categories) ? cfg.l1Categories as string[] : ["projects", "contacts", "tasks"],
       l1AutoWrite: cfg.l1AutoWrite === true,
+      // Optimization triggers
+      contextThresholdKB: typeof cfg.contextThresholdKB === "number" ? cfg.contextThresholdKB : 50,
+      messageThreshold: typeof cfg.messageThreshold === "number" ? cfg.messageThreshold : 10,
     };
   },
 };
@@ -781,30 +790,41 @@ const memoryPlugin = {
     const l1Manager = createL1Manager(cfg, api);
 
     // Create MemoryOptimizer for trigger-based optimization
+    // Read thresholds from config (defaults: 50KB context, 10 messages)
+    const contextThresholdKB = cfg.contextThresholdKB ?? 50;
+    const messageThreshold = cfg.messageThreshold ?? 10;
+    
     const memoryOptimizer = new MemoryOptimizer({
       l0Path: api.resolvePath(cfg.l0Path || "memory.md"),
       l1Dir: api.resolvePath(cfg.l1Dir || "memory"),
-      contextMaxKB: 100,
+      contextMaxKB: contextThresholdKB,
       l1FileMaxKB: 50,
       l1KeepRecentDays: 7,
       l0MaxLines: 100,
       serverUrl: cfg.serverUrl,
       apiKey: cfg.serverApiKey,
     });
+    
+    // Set message threshold
+    memoryOptimizer.setMessageThreshold(messageThreshold);
 
     // Run first-time setup for memory_manager.sh (for manual use)
+    // Also runs initial optimization to reduce context size
     if (cfg.mode === "server" && cfg.serverUrl && cfg.serverApiKey) {
       runSetup({
         serverUrl: cfg.serverUrl,
         apiKey: cfg.serverApiKey,
         agentId: cfg.agentId || "openclaw-main",
-      }).catch((err) => {
+      }, memoryOptimizer).catch((err) => {
         api.logger.warn("mem0-setup: Failed to run setup:", err.message);
       });
     }
 
     // Track current session ID for tool-level session scoping
     let currentSessionId: string | undefined;
+    
+    // Track message count for optimization trigger
+    let sessionMessageCount: number = 0;
 
     api.logger.info(
       `openclaw-mem0: registered (mode: ${cfg.mode}, user: ${cfg.userId}, agent: ${cfg.agentId || 'N/A'}, L0: ${cfg.l0Enabled}, L1: ${cfg.l1Enabled}, autoRecall: ${cfg.autoRecall}, autoCapture: ${cfg.autoCapture})`,
@@ -1426,9 +1446,12 @@ const memoryPlugin = {
       api.on("before_agent_start", async (event, ctx) => {
         if (!event.prompt || event.prompt.length < 5) return;
 
-        // Track session ID
+        // Track session ID and reset message count for new session
         const sessionId = (ctx as any)?.sessionKey ?? undefined;
-        if (sessionId) currentSessionId = sessionId;
+        if (sessionId && sessionId !== currentSessionId) {
+          currentSessionId = sessionId;
+          sessionMessageCount = 0;  // Reset for new session
+        }
 
         try {
           // Trigger-based optimization: check and optimize if needed
@@ -1524,9 +1547,16 @@ const memoryPlugin = {
           return;
         }
 
-        // Track session ID
+        // Update message count for optimization trigger
+        sessionMessageCount += event.messages.length;
+        memoryOptimizer.updateMessageCount(sessionMessageCount);
+
+        // Track session ID and reset message count for new session
         const sessionId = (ctx as any)?.sessionKey ?? undefined;
-        if (sessionId) currentSessionId = sessionId;
+        if (sessionId && sessionId !== currentSessionId) {
+          currentSessionId = sessionId;
+          sessionMessageCount = 0;  // Reset for new session
+        }
 
         try {
           // Extract messages, limiting to last 10

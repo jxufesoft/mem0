@@ -204,7 +204,7 @@ export class MemoryOptimizer {
           const recent = lines.slice(-50); // Last 50 lines for recent context
 
           const compressed = [
-            header,
+			...header,
             "",
             `--- [智能压缩于 ${new Date().toISOString().slice(0, 16)}] ---`,
             "",

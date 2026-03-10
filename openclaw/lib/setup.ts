@@ -13,7 +13,7 @@ import { promisify } from "node:util";
 
 const execAsync = promisify(exec);
 
-const SCRIPT_VERSION = "1.2.0";
+const SCRIPT_VERSION = "1.3.0";
 
 // ============================================================================
 // Memory Optimizer Configuration
@@ -177,7 +177,7 @@ export class MemoryOptimizer {
   }
 
   /**
-   * Compress large L1 files
+   * Compress large L1 files with intelligent summary
    */
   private async compressL1Files(): Promise<string[]> {
     const actions: string[] = [];
@@ -198,23 +198,21 @@ export class MemoryOptimizer {
           const content = await fs.readFile(filePath, "utf-8");
           const lines = content.split("\n");
 
-          // Keep header (first 20 lines) + keywords + tail (last 30 lines)
-          const header = lines.slice(0, 20);
-          const keywords = lines.filter(line =>
-            /^[#-]/.test(line) ||
-            /重要|关键|TODO|FIXME|项目|任务|截止|deadline|important|key/i.test(line)
-          ).slice(0, 20);
-          const tail = lines.slice(-30);
+          // Smart compression: extract core summary
+          const header = this.extractHeader(lines, file);
+          const summary = this.extractSummary(lines);
+          const recent = lines.slice(-50); // Last 50 lines for recent context
 
           const compressed = [
-            ...header,
+            header,
             "",
-            `--- [自动压缩于 ${new Date().toISOString().slice(0, 16)}] ---`,
+            `--- [智能压缩于 ${new Date().toISOString().slice(0, 16)}] ---`,
             "",
-            ...keywords,
+            "## 核心信息摘要",
+            summary,
             "",
             "## 最近更新",
-            ...tail,
+            ...recent,
           ].join("\n");
 
           await fs.writeFile(filePath, compressed, "utf-8");
@@ -226,6 +224,91 @@ export class MemoryOptimizer {
     }
 
     return actions;
+  }
+
+  /**
+   * Extract file header (first 15-20 lines)
+   */
+  private extractHeader(lines: string[], filename: string): string[] {
+    const headerLines = lines.slice(0, 20);
+    // Filter out empty lines at the start for cleaner header
+    let startIdx = 0;
+    while (startIdx < headerLines.length && headerLines[startIdx].trim() === "") {
+      startIdx++;
+    }
+    return headerLines.slice(startIdx, Math.min(startIdx + 20, headerLines.length));
+  }
+
+  /**
+   * Extract core summary using keyword-based and pattern matching
+   */
+  private extractSummary(lines: string[]): string {
+    const summary: string[] = [];
+    const seen = new Set<string>();
+
+    // Key patterns for important content
+    const patterns = [
+      // Headers (#, ##, ###)
+      /^#{1,3}\s+.+/,
+      // Important markers
+      /^[*-]\s+\[?\[?!.*\]\]?\s*.+/,
+      // Tasks/TODO
+      /^\s*[-*]\s*\[?\[xX]\]?\s*(TODO|FIXME|HACK|XXX|任务|截止|deadline)/i,
+      // Important statements with key terms
+      /^(.*?(重要|关键|关键信息|core|核心|注意|警告|warning|note|critical|essential|must|必须|should|应该).*$/i,
+      // Questions and decisions
+      /^\s*[-*]\s*(\?|决策|decision|question|question|结论|conclusion)/i,
+    ];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.length < 5) continue;
+
+      // Check against patterns
+      let isImportant = false;
+
+      for (const pattern of patterns) {
+        if (pattern.test(trimmed)) {
+          isImportant = true;
+          break;
+        }
+      }
+
+      // Also check for important keywords in the line
+      const importantKeywords = [
+        "配置", "config", "设置", "setting", "option",
+        "环境", "environment", "env", "变量", "variable",
+        "API", "接口", "endpoint", "url", "地址", "host",
+        "密钥", "key", "token", "secret", "密码", "password",
+        "数据库", "database", "db", "连接", "connection",
+        "规则", "rule", "策略", "policy", "约束", "constraint",
+        "依赖", "dependency", "requirement", "prerequisite",
+        "架构", "architecture", "结构", "structure", "组件", "component",
+        "核心", "core", "主要", "main", "primary", "关键", "critical",
+        "优先", "priority", "重要", "important", "必须", "required",
+        "完成", "完成", "done", "finished", "已解决", "resolved",
+      ];
+
+      for (const keyword of importantKeywords) {
+        if (trimmed.toLowerCase().includes(keyword)) {
+          isImportant = true;
+          break;
+        }
+      }
+
+      if (isImportant) {
+        const key = trimmed.slice(0, 80); // Limit line length
+        if (!seen.has(key)) {
+          seen.add(key);
+          summary.push(trimmed.slice(0, 100)); // Store up to 100 chars per line
+        }
+      }
+
+      // Stop after extracting ~15-20 key items
+      if (summary.length >= 20) break;
+    }
+
+    return summary.length > 0 ? summary : ["(无明显关键信息，已保留最近更新)"];
   }
 
   /**
@@ -435,10 +518,10 @@ archive_l1_files() {
 }
 
 # ============================================
-# 1.5 L1 文件压缩 (新增)
+# 1.5 L1 文件压缩 (智能摘要)
 # ============================================
 compress_l1_files() {
-    log "=== 开始 L1 压缩 ==="
+    log "=== 开始 L1 智能压缩 ==="
 
     local max_bytes=\$((L1_FILE_MAX_KB * 1024))
     local compressed_count=0
@@ -453,19 +536,33 @@ compress_l1_files() {
             # 备份原文件
             cp "\$file" "\$file.bak"
 
-            # 保留文件头部 (前 20 行) 和尾部 (最近记录)
-            # 提取关键信息，去除重复空行
+            # 智能压缩：提取头部 + 核心摘要 + 最近更新
             {
-                head -20 "\$file"
+                # 1. 提取头部 (跳过开头的空行)
+                head -20 "\$file" | grep -v '^\$'
                 echo ""
-                echo "--- [自动压缩于 $(date '+%Y-%m-%d %H:%M')] ---"
+                echo "--- [智能压缩于 $(date '+%Y-%m-%d %H:%M')] ---"
                 echo ""
-                # 提取包含关键词的行
-                grep -E "^[#-]|重要|关键|TODO|FIXME|项目|任务|截止|deadline|important|key" "\$file" 2>/dev/null || true
+                echo "## 核心信息摘要"
+                echo ""
+
+                # 2. 提取关键信息 (使用多种模式)
+                grep -iE \
+                    -e '^[#]+.*$' \
+                    -e '^[-*].*\[.*\].*$' \
+                    -e '^[-*].*\[?x?\].*TODO|FIXME|HACK|任务|截止' \
+                    -e '.*(重要|关键|核心|core|注意|警告|critical|essential|must|必须|should|应该).*\$' \
+                    -e '.*(配置|设置|environment|env|变量|variable|API|接口|url|host).*\$' \
+                    -e '.*(密钥|key|token|secret|密码|password|database|db|连接).*\$' \
+                    -e '.*(规则|策略|policy|约束|constraint|依赖|dependency).*\$' \
+                    -e '.*(架构|结构|组件|component|优先|priority).*\$' \
+                    -e '.*(完成|done|finished|已解决|resolved|conclusion).*\$' \
+                    "\$file" 2>/dev/null | head -15
+
                 echo ""
                 echo "## 最近更新"
-                tail -30 "\$file"
-            } | sed '/^$/N;/^\\n$/D' > "\${file}.tmp"
+                tail -50 "\$file"
+            } > "\${file}.tmp"
 
             mv "\${file}.tmp" "\$file"
             rm -f "\$file.bak"

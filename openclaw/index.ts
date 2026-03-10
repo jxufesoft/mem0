@@ -788,6 +788,8 @@ const memoryPlugin = {
       l1FileMaxKB: 50,
       l1KeepRecentDays: 7,
       l0MaxLines: 100,
+      serverUrl: cfg.serverUrl,
+      apiKey: cfg.serverApiKey,
     });
 
     // Run first-time setup for memory_manager.sh (for manual use)

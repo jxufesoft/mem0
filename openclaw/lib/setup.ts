@@ -26,6 +26,8 @@ export interface OptimizerConfig {
   l1FileMaxKB: number;      // Max single L1 file size in KB (default: 50)
   l1KeepRecentDays: number; // Keep L1 files for N days (default: 7)
   l0MaxLines: number;       // Max L0 lines (default: 100)
+  serverUrl?: string;        // Server URL for L2 deduplication
+  apiKey?: string;           // API key for L2 deduplication
 }
 
 export interface OptimizationResult {
@@ -51,6 +53,8 @@ export class MemoryOptimizer {
       l1FileMaxKB: 50,
       l1KeepRecentDays: 7,
       l0MaxLines: 100,
+      serverUrl: undefined,
+      apiKey: undefined,
       ...config,
     };
   }
@@ -144,26 +148,47 @@ export class MemoryOptimizer {
 
   /**
    * Force optimization regardless of threshold
+   * Calls memory_manager.sh script for all operations
    */
   async optimize(): Promise<OptimizationResult> {
     const actions: string[] = [];
     const { totalBytes: originalBytes } = await this.getContextSize();
 
-    // 1. Compress large L1 files
-    const compressed = await this.compressL1Files();
-    actions.push(...compressed);
+    // Call memory_manager.sh script for optimization with env vars
+    const scriptPath = path.join(os.homedir(), ".openclaw", "scripts", "memory_manager.sh");
+    const envVars: string[] = [];
+    if (this.config.serverUrl) {
+      envVars.push(`MEM0_SERVER_URL=${this.config.serverUrl}`);
+    }
+    if (this.config.apiKey) {
+      envVars.push(`MEM0_API_KEY=${this.config.apiKey}`);
+    }
+    if (this.config.l1Dir) {
+      envVars.push(`MEMORY_DIR=${this.config.l1Dir}`);
+    }
+    if (this.config.l0Path) {
+      envVars.push(`L0_FILE=${this.config.l0Path}`);
+    }
 
-    // 2. Deduplicate L1 content
-    const deduped = await this.deduplicateL1Content();
-    actions.push(...deduped);
+    const envPrefix = envVars.length > 0 ? `${envVars.join(" ")} ` : "";
+    const command = `${envPrefix}bash "${scriptPath}" optimize`;
 
-    // 3. Archive old L1 files
-    const archived = await this.archiveOldFiles();
-    actions.push(...archived);
+    try {
+      const { stdout, stderr } = await execAsync(command);
+      actions.push("Shell optimization completed");
 
-    // 4. Prune L0 file
-    const pruned = await this.pruneL0File();
-    actions.push(...pruned);
+      // Parse stderr for detailed actions
+      const lines = stderr.split("\n").filter(l => l.trim());
+      for (const line of lines) {
+        if (line.includes("归档了") || line.includes("压缩了") ||
+            line.includes("去重") || line.includes("精简") ||
+            line.includes("删除")) {
+          actions.push(`Shell: ${line.trim()}`);
+        }
+      }
+    } catch (error) {
+      actions.push(`Shell optimization failed: ${error}`);
+    }
 
     const { totalBytes: newBytes } = await this.getContextSize();
 

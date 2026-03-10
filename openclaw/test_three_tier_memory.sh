@@ -56,12 +56,12 @@ api_call() {
     if [[ -n "$data" ]]; then
         curl -s -X "$method" "${SERVER_URL}${endpoint}" \
             -H "Content-Type: application/json" \
-            -H "X-API-Key: ${API_KEY}" \
+            -H "Authorization: Bearer ${API_KEY}" \
             -d "$data" 2>/dev/null
     else
         curl -s -X "$method" "${SERVER_URL}${endpoint}" \
             -H "Content-Type: application/json" \
-            -H "X-API-Key: ${API_KEY}" 2>/dev/null
+            -H "Authorization: Bearer ${API_KEY}" 2>/dev/null
     fi
 }
 

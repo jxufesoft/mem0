@@ -65,16 +65,16 @@ api_call() {
     local method=$1
     local endpoint=$2
     local data=$3
-    
+
     if [[ -n "$data" ]]; then
         curl -s -X "$method" "${SERVER_URL}${endpoint}" \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${API_KEY} \
+            -H "Authorization: Bearer ${API_KEY}" \
             -d "$data" 2>/dev/null
     else
         curl -s -X "$method" "${SERVER_URL}${endpoint}" \
             -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${API_KEY} 2>/dev/null
+            -H "Authorization: Bearer ${API_KEY}" 2>/dev/null
     fi
 }
 

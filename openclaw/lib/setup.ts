@@ -255,7 +255,8 @@ export class MemoryOptimizer {
       // Tasks/TODO
       /^\s*[-*]\s*\[?\[xX]\]?\s*(TODO|FIXME|HACK|XXX|任务|截止|deadline)/i,
       // Important statements with key terms
-      /^(.*?(重要|关键|关键信息|core|核心|注意|警告|warning|note|critical|essential|must|必须|should|应该).*$/i,
+      /^(.*(重要|关键|关键信息|core|核心|注意|警告|warning|note|critical|essential|must|必须|应该).*).*$/i,
+
       // Questions and decisions
       /^\s*[-*]\s*(\?|决策|decision|question|question|结论|conclusion)/i,
     ];
@@ -308,7 +309,7 @@ export class MemoryOptimizer {
       if (summary.length >= 20) break;
     }
 
-    return summary.length > 0 ? summary : ["(无明显关键信息，已保留最近更新)"];
+    return summary.length > 0 ? summary.join("\n") : "(无明显关键信息，已保留最近更新)";
   }
 
   /**

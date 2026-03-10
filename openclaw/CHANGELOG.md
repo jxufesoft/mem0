@@ -2,6 +2,63 @@
 
 All notable changes to the Mem0 OpenClaw Plugin.
 
+## [2.2.1] - 2026-03-09
+
+### Release Summary
+
+Improve L1 file compression with intelligent core information summary extraction. Uses keyword-based and pattern-based matching to preserve important content.
+
+### Changed
+
+- **Smart Summary Extraction** - New `extractSummary()` method
+  - Extract headers, tasks, and markers
+  - Detect configuration and key information
+  - Identify priorities and completion status
+  - Limit to ~20 key items for efficiency
+
+- **Cleaner Header Extraction** - New `extractHeader()` method
+  - Skip leading empty lines
+  - Preserve first 20 meaningful lines
+
+- **Enhanced Shell Script** - Updated `compress_l1_files()` function
+  - Multiple grep patterns for better coverage
+  - Chinese and English keyword support
+  - Pattern matching for configuration, keys, tasks, priorities
+
+### Compression Algorithm
+
+```
+原始大文件
+    │
+    ├─> 提取头部 (20行，跳过空行)
+    │
+    ├─> 智能摘要 (使用多种模式)
+    │   ├─ Headers: ^#{1,3} ...
+    │   ├─ Tasks: [-*] [?] ... | TODO|FIXME
+    │   ├─ Keys: 配置|设置|API|密钥|数据库...
+    │   ├─ Rules: 规则|策略|依赖...
+    │   ├─ Priorities: 重要|关键|核心|必须...
+    │   └─ Status: 完成|done|已解决|结论...
+    │
+    └─> 最近更新 (50行)
+```
+
+### Before vs After
+
+**Before (v2.2.0)**: Simple header (20 lines) + keywords (20 lines) + tail (30 lines)
+
+**After (v2.2.1)**: Clean header + **intelligent summary** (20 key items) + tail (50 lines)
+
+### Upgrade from 2.2.0
+
+```bash
+# Download and install
+wget https://github.com/jxufesoft/mem0/releases/download/v2.2.1/mem0-openclaw-mem0-2.2.1.tgz
+openclaw plugins install ./mem0-openclaw-mem0-2.2.1.tgz
+```
+
+---
+
 ## [2.2.0] - 2026-03-09
 
 ### Release Summary

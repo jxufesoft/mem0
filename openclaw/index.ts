@@ -696,10 +696,10 @@ const mem0ConfigSchema = {
       serverApiKey: typeof cfg.serverApiKey === "string" ? resolveEnvVars(cfg.serverApiKey) : undefined,
       agentId: typeof cfg.agentId === "string" ? cfg.agentId : "openclaw-default",
       // L0 config
-      l0Enabled: cfg.l0Enabled === true,
+      l0Enabled: cfg.l0Enabled !== false,
       l0Path: typeof cfg.l0Path === "string" ? cfg.l0Path : "memory.md",
       // L1 config
-      l1Enabled: cfg.l1Enabled === true,
+      l1Enabled: cfg.l1Enabled !== false,
       l1Dir: typeof cfg.l1Dir === "string" ? cfg.l1Dir : "memory",
       l1RecentDays: typeof cfg.l1RecentDays === "number" ? cfg.l1RecentDays : 7,
       l1Categories: Array.isArray(cfg.l1Categories) ? cfg.l1Categories as string[] : ["projects", "contacts", "tasks"],

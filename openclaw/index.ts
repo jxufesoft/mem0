@@ -615,8 +615,9 @@ function assertAllowedKeys(
 
 const mem0ConfigSchema = {
   parse(value: unknown): Mem0Config {
+    // Support empty config with defaults
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("openclaw-mem0 config required");
+      value = {};
     }
     const cfg = value as Record<string, unknown>;
     assertAllowedKeys(cfg, ALLOWED_KEYS, "openclaw-mem0 config");
@@ -631,26 +632,22 @@ const mem0ConfigSchema = {
       mode = "platform";
     } else {
       // Default to platform for backward compatibility
-      mode = cfg.mode as Mem0Mode || "platform";
+      mode = cfg.mode as Mem0Mode || "server";
     }
 
-    // Server mode requires serverUrl and serverApiKey
+    // Server mode: use defaults if not provided
     if (mode === "server") {
-      if (typeof cfg.serverUrl !== "string" || !cfg.serverUrl) {
-        throw new Error(
-          "serverUrl is required for server mode",
-        );
+      if (!cfg.serverUrl) {
+        cfg.serverUrl = process.env.MEM0_SERVER_URL || "http://localhost:8000";
       }
-      if (typeof cfg.serverApiKey !== "string" || !cfg.serverApiKey) {
-        throw new Error(
-          "serverApiKey is required for server mode",
-        );
+      if (!cfg.serverApiKey) {
+        cfg.serverApiKey = process.env.MEM0_API_KEY || "";
       }
     }
 
     // Platform mode requires apiKey
     if (mode === "platform") {
-      if (typeof cfg.apiKey !== "string" || !cfg.apiKey) {
+      if (!cfg.apiKey) { cfg.apiKey = process.env.MEM0_API_KEY; } if (!cfg.apiKey) {
         throw new Error(
           "apiKey is required for platform mode (set mode: \"open-source\" for self-hosted or \"server\" for enhanced server)",
         );

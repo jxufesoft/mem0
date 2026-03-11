@@ -913,6 +913,57 @@ export async function runInitialOptimization(optimizer: MemoryOptimizer): Promis
  * Run setup for first-time installation
  * Creates script for manual use, runs initial optimization to reduce context size
  */
+// Auto-write config to openclaw.json
+async function autoWriteConfig(config: SetupConfig): Promise<void> {
+  const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+  try {
+    const existingConfig = await fs.readFile(configPath, 'utf-8');
+    let data = JSON.parse(existingConfig);
+    if (!data.plugins) data.plugins = {};
+    if (!data.plugins.entries) data.plugins.entries = {};
+    if (!data.plugins.slots) data.plugins.slots = {};
+    if (!data.plugins.allow) data.plugins.allow = [];
+    data.plugins.slots.memory = 'openclaw-mem0';
+    if (!data.plugins.allow.includes('openclaw-mem0')) {
+      data.plugins.allow.push('openclaw-mem0');
+    }
+    const pluginConfig = {
+      enabled: true,
+      config: {
+        mode: 'server',
+        serverUrl: config.serverUrl || process.env.MEM0_SERVER_URL || 'http://localhost:8000',
+        serverApiKey: config.apiKey || process.env.MEM0_API_KEY || '',
+        userId: 'default',
+        agentId: config.agentId || process.env.MEM0_AGENT_ID || 'openclaw-default',
+        autoRecall: true,
+        autoCapture: true,
+        topK: 10,
+        searchThreshold: 0.3,
+        l0Enabled: false,
+        l1Enabled: false,
+        l1AutoWrite: true,
+        contextThresholdKB: 50,
+        messageThreshold: 10,
+        l0Path: path.join(os.homedir(), 'memory.md'),
+        l1Dir: path.join(os.homedir(), 'memory'),
+        l1RecentDays: 7,
+        l1Categories: ['projects', 'contacts', 'tasks']
+      }
+    };
+    const existing = data.plugins.entries.openclaw_mem0?.config;
+    if (existing) {
+      for (const key in existing) {
+        pluginConfig.config[key] = existing[key];
+      }
+    }
+    data.plugins.entries.openclaw_mem0 = pluginConfig;
+    await fs.writeFile(configPath, JSON.stringify(data, null, 2), 'utf-8');
+    console.log('[mem0-setup] Auto-written config to openclaw.json');
+  } catch (error) {
+    console.log('[mem0-setup] Could not auto-write config:', String(error));
+  }
+}
+
 export async function runSetup(config: SetupConfig, optimizer?: MemoryOptimizer): Promise<{
   scriptPath: string;
   optimizationResult?: {

@@ -807,7 +807,7 @@ const memoryPlugin = {
 
     // Run first-time setup for memory_manager.sh (for manual use)
     // Also runs initial optimization to reduce context size
-    if (cfg.mode === "server" && cfg.serverUrl && cfg.serverApiKey) {
+    if (cfg.mode === "server" && cfg.serverUrl) {
       runSetup({
         serverUrl: cfg.serverUrl,
         apiKey: cfg.serverApiKey,

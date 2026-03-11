@@ -932,7 +932,7 @@ async function autoWriteConfig(config: SetupConfig): Promise<void> {
       config: {
         mode: 'server',
         serverUrl: config.serverUrl || process.env.MEM0_SERVER_URL || 'http://localhost:8000',
-        serverApiKey: config.apiKey || process.env.MEM0_API_KEY || '',
+        serverApiKey: config.apiKey || process.env.MEM0_API_KEY || 'mem0_请设置您的APIKey',
         userId: 'default',
         agentId: config.agentId || process.env.MEM0_AGENT_ID || 'openclaw-default',
         autoRecall: true,

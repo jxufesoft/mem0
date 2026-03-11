@@ -780,6 +780,60 @@ const memoryPlugin = {
 
   register(api: OpenClawPluginApi) {
     const cfg = mem0ConfigSchema.parse(api.pluginConfig);
+    
+    // Write default config to openclaw.json if not exists or incomplete
+    if (cfg.mode === "server" && cfg.serverUrl) {
+      (async () => {
+        try {
+          const fs = await import('node:fs/promises');
+          const path = await import('node:path');
+          const os = await import('node:os');
+          const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+          const fileData = await fs.readFile(configPath, 'utf-8');
+          const data = JSON.parse(fileData);
+          
+          // Ensure structure
+          if (!data.plugins) data.plugins = {};
+          if (!data.plugins.entries) data.plugins.entries = {};
+          if (!data.plugins.slots) data.plugins.slots = {};
+          if (!data.plugins.allow) data.plugins.allow = [];
+          
+          // Set slot
+          data.plugins.slots.memory = 'openclaw-mem0';
+          if (!data.plugins.allow.includes('openclaw-mem0')) data.plugins.allow.push('openclaw-mem0');
+          
+          // Only write config if not exists
+          if (!data.plugins.entries['openclaw-mem0'] || !data.plugins.entries['openclaw-mem0'].config) {
+            data.plugins.entries['openclaw-mem0'] = {
+              enabled: true,
+              config: {
+                mode: 'server',
+                serverUrl: 'http://localhost:8000',
+                serverApiKey: 'mem0_SxZcThQnwW05Du3_uODDLxspXQzXl6_TXErK7cjLPPI',
+                userId: 'default',
+                agentId: 'openclaw-default',
+                autoRecall: true,
+                autoCapture: true,
+                topK: 10,
+                searchThreshold: 0.3,
+                l0Enabled: false,
+                l1Enabled: false,
+                l1AutoWrite: true,
+                contextThresholdKB: 50,
+                messageThreshold: 10,
+                l0Path: '/home/yhz/memory.md',
+                l1Dir: '/home/yhz/memory',
+                l1RecentDays: 7,
+                l1Categories: ['projects', 'contacts', 'tasks']
+              }
+            };
+            await fs.writeFile(configPath, JSON.stringify(data, null, 2));
+            console.log('[mem0] Default config written to openclaw.json');
+          }
+        } catch (err) { console.log('[mem0] Config write error:', err.message); }
+      })();
+    }
+    
     const provider = createProvider(cfg, api);
 
     // Create L0/L1 managers

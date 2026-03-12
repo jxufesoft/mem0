@@ -100,46 +100,52 @@ export const plugin: OpenClawPlugin = {
 
 ```typescript
 interface Mem0Config {
-  // 模式选择
-  mode: "platform" | "open-source" | "server";
+  // ==================== 模式选择 ====================
+  mode: "platform" | "open-source" | "server";  // 运行模式
 
-  // Platform 模式
-  apiKey?: string;
-  orgId?: string;
-  projectId?: string;
-  customInstructions?: string;
-  enableGraph?: boolean;
-  customCategories?: Record<string, string>;
+  // ==================== Platform 模式 ====================
+  apiKey?: string;                    // Mem0 Cloud API Key
+  orgId?: string;                     // 组织 ID（可选）
+  projectId?: string;                 // 项目 ID（可选）
+  customInstructions?: string;        // 自定义指令，控制记忆存储行为
+  customCategories?: Record<string, string>; // 自定义分类映射
+  enableGraph?: boolean;              // 是否启用关系图谱
 
-  // Server 模式
-  serverUrl?: string;
-  serverApiKey?: string;
-  agentId?: string;
+  // ==================== Server 模式 ====================
+  serverUrl?: string;                 // Server 地址
+  serverApiKey?: string;              // Server API Key
+  agentId?: string;                   // Agent 标识
 
-  // 通用配置
-  userId?: string;
-  autoCapture?: boolean;
-  autoRecall?: boolean;
-  searchThreshold?: number;
-  topK?: number;
+  // ==================== 通用配置 ====================
+  userId?: string;                    // 用户标识，用于隔离记忆
+  autoCapture?: boolean;              // 是否在对话后自动存储关键信息
+  autoRecall?: boolean;               // 是否在对话前自动检索相关记忆
+  searchThreshold?: number;           // 搜索相似度阈值（0-1）
+  topK?: number;                      // 每次检索返回的最大记忆数量
 
-  // L0/L1 配置
-  l0Enabled?: boolean;
-  l0Path?: string;
-  l1Enabled?: boolean;
-  l1Dir?: string;
-  l1RecentDays?: number;
-  l1Categories?: string[];
-  l1AutoWrite?: boolean;
+  // ==================== 优化触发配置 ====================
+  contextThresholdKB?: number;        // 上下文大小阈值（KB），超过时触发自动优化
+  messageThreshold?: number;          // 消息数量阈值，达到后触发优化
 
-  // OSS 模式
+  // ==================== L0 层配置 ====================
+  l0Enabled?: boolean;                // 是否启用 L0 层（持久记忆文件）
+  l0Path?: string;                    // L0 文件路径
+
+  // ==================== L1 层配置 ====================
+  l1Enabled?: boolean;                // 是否启用 L1 层（结构化记忆）
+  l1Dir?: string;                     // L1 目录路径
+  l1RecentDays?: number;              // 加载最近 N 天的日期文件
+  l1Categories?: string[];            // 分类文件名数组
+  l1AutoWrite?: boolean;              // 是否在 agent_end 后自动分析对话并写入 L1
+
+  // ==================== Open-Source 模式 ====================
+  customPrompt?: string;              // 自定义系统提示词
   oss?: {
-    vectorStore?: { provider: string; config: any };
-    llm?: { provider: string; config: any };
-    embedder?: { provider: string; config: any };
-    historyDbPath?: string;
+    vectorStore?: { provider: string; config: any };  // 向量存储配置
+    llm?: { provider: string; config: any };          // LLM 配置
+    embedder?: { provider: string; config: any };     // Embedder 配置
+    historyDbPath?: string;                            // 历史数据库路径
   };
-  customPrompt?: string;
 }
 ```
 

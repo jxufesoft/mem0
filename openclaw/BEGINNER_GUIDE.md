@@ -642,10 +642,13 @@ curl -X POST http://localhost:8000/search \
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `mode` | string | `"platform"` | 运行模式：`"platform"`、`"open-source"`、`"server"` |
+| `mode` | string | `"platform"` | 运行模式：`"platform"`（Mem0 Cloud）、`"open-source"`（自托管）、`"server"`（推荐） |
 | `userId` | string | `"default"` | 用户标识，用于隔离不同用户的记忆 |
-| `autoRecall` | boolean | `true` | 是否在对话前自动检索相关记忆 |
-| `autoCapture` | boolean | `true` | 是否在对话后自动存储关键信息 |
+| `autoRecall` | boolean | `true` | 是否在对话前自动检索相关记忆并加入上下文 |
+| `autoCapture` | boolean | `true` | 是否在对话后自动存储关键信息到 L2 向量存储 |
+| `customInstructions` | string | `""` | 自定义指令，控制记忆存储行为（如"只存储用户偏好"） |
+| `customCategories` | object | `{}` | 自定义分类，如 `{"projects": "项目信息", "contacts": "联系人"}` |
+| `enableGraph` | boolean | `false` | 是否启用关系图谱（需要图数据库支持） |
 
 #### 7.3.2 性能参数
 
@@ -654,30 +657,55 @@ curl -X POST http://localhost:8000/search \
 | `topK` | number | `5` | 每次检索返回的最大记忆数量 |
 | `searchThreshold` | number | `0.3` | 搜索相似度阈值（0-1），越大越严格 |
 
-#### 7.3.3 Server 模式参数
+#### 7.3.3 优化触发参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `contextThresholdKB` | number | `50` | 上下文大小阈值（KB），超过时触发自动优化 |
+| `messageThreshold` | number | `10` | 消息数量阈值，达到后触发自动优化 |
+
+#### 7.3.4 Platform 模式参数
 
 | 参数 | 类型 | 必需 | 说明 |
 |------|------|------|------|
-| `serverUrl` | string | ✅ | Server 地址 |
-| `serverApiKey` | string | ✅ | API Key |
+| `apiKey` | string | ✅ | Mem0 Cloud API Key |
+| `orgId` | string | ❌ | 组织 ID（可选） |
+| `projectId` | string | ❌ | 项目 ID（可选） |
+
+#### 7.3.5 Server 模式参数
+
+| 参数 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `serverUrl` | string | ✅ | Server 地址，如 `http://localhost:8000` |
+| `serverApiKey` | string | ✅ | Server API Key |
 | `agentId` | string | ❌ | Agent 标识，默认 `"openclaw-default"` |
 
-#### 7.3.4 L0 层参数
+#### 7.3.6 Open-Source 模式参数
+
+| 参数 | 类型 | 必需 | 说明 |
+|------|------|------|------|
+| `customPrompt` | string | ❌ | 自定义系统提示词 |
+| `oss.embedder` | object | ❌ | Embedder 配置 |
+| `oss.vectorStore` | object | ❌ | 向量存储配置 |
+| `oss.llm` | object | ❌ | LLM 配置 |
+| `oss.historyDbPath` | string | ❌ | 历史数据库路径，默认 `~/.mem0/history.db` |
+
+#### 7.3.7 L0 层参数
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `l0Enabled` | boolean | `false` | 是否启用 L0 层 |
+| `l0Enabled` | boolean | `true` | 是否启用 L0 层（持久记忆文件） |
 | `l0Path` | string | `"memory.md"` | L0 文件路径 |
 
-#### 7.3.5 L1 层参数
+#### 7.3.8 L1 层参数
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `l1Enabled` | boolean | `false` | 是否启用 L1 层 |
+| `l1Enabled` | boolean | `true` | 是否启用 L1 层（结构化记忆） |
 | `l1Dir` | string | `"memory"` | L1 目录路径 |
 | `l1RecentDays` | number | `7` | 加载最近 N 天的日期文件 |
 | `l1Categories` | string[] | `["projects","contacts","tasks"]` | 分类文件名 |
-| `l1AutoWrite` | boolean | `false` | 是否自动写入对话摘要 |
+| `l1AutoWrite` | boolean | `false` | 是否在 `agent_end` 后自动分析对话并写入 L1 |
 
 ### 7.4 三种运行模式配置示例
 

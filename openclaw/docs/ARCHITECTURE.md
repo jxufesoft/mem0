@@ -323,14 +323,15 @@ class L1Manager {
 **配置**：
 ```typescript
 interface PlatformConfig {
-  apiKey: string;
-  orgId?: string;
-  projectId?: string;
-  userId?: string;
-  customInstructions?: string;
-  enableGraph?: boolean;
-  searchThreshold?: number;
-  topK?: number;
+  apiKey: string;                    // Mem0 Cloud API Key
+  orgId?: string;                   // 组织 ID（可选）
+  projectId?: string;               // 项目 ID（可选）
+  userId?: string;                  // 用户标识
+  customInstructions?: string;      // 自定义指令
+  customCategories?: Record<string, string>; // 自定义分类
+  enableGraph?: boolean;            // 启用关系图谱
+  searchThreshold?: number;         // 搜索相似度阈值
+  topK?: number;                    // 返回结果数
 }
 ```
 
@@ -348,16 +349,16 @@ interface PlatformConfig {
 **配置**：
 ```typescript
 interface OSSConfig {
-  userId?: string;
+  userId?: string;                  // 用户标识
+  customPrompt?: string;             // 自定义系统提示词
+  searchThreshold?: number;         // 搜索相似度阈值
+  topK?: number;                    // 返回结果数
   oss?: {
-    vectorStore?: { provider: string; config: any };
-    llm?: { provider: string; config: any };
-    embedder?: { provider: string; config: any };
-    historyDbPath?: string;
+    vectorStore?: { provider: string; config: any };  // 向量存储
+    llm?: { provider: string; config: any };          // LLM
+    embedder?: { provider: string; config: any };      // Embedder
+    historyDbPath?: string;                           // 历史数据库
   };
-  customPrompt?: string;
-  searchThreshold?: number;
-  topK?: number;
 }
 ```
 

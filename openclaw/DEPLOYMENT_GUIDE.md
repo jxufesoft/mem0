@@ -338,15 +338,37 @@ docker-compose ps
       "openclaw-mem0": {
         "enabled": true,
         "config": {
+          // 核心配置
           "mode": "server",
+          "userId": "default",
+          
+          // Server 模式配置
           "serverUrl": "http://mem0-server:8000",
           "serverApiKey": "${MEM0_API_KEY}",
           "agentId": "openclaw-prod",
-          "userId": "default",
+          
+          // 性能配置
+          "topK": 5,
+          "searchThreshold": 0.3,
+          
+          // 优化触发配置
+          "contextThresholdKB": 50,
+          "messageThreshold": 10,
+          
+          // 自动功能
+          "autoRecall": true,
+          "autoCapture": true,
+          
+          // L0 配置
           "l0Enabled": true,
+          "l0Path": "memory.md",
+          
+          // L1 配置
           "l1Enabled": true,
-          "l1AutoWrite": true,
-          "l1Categories": ["projects", "contacts", "tasks"]
+          "l1Dir": "memory",
+          "l1RecentDays": 7,
+          "l1Categories": ["projects", "contacts", "tasks"],
+          "l1AutoWrite": false
         }
       }
     }

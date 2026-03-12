@@ -119,10 +119,27 @@ nano ~/.openclaw/openclaw.json
       "openclaw-mem0": {
         "enabled": true,
         "config": {
-          "mode": "server",
-          "serverUrl": "http://YOUR_SERVER_IP:8000",
-          "serverApiKey": "your-api-key-here",
-          "userId": "default"
+          // 核心配置
+          "mode": "server",           // 运行模式: platform / open-source / server
+          "userId": "default",        // 用户标识
+          
+          // Server 模式配置
+          "serverUrl": "http://YOUR_SERVER_IP:8000",  // Server 地址
+          "serverApiKey": "your-api-key-here",        // API Key
+          "agentId": "openclaw-main", // Agent 标识（可选）
+          
+          // 自动功能（可选）
+          "autoRecall": true,         // 对话前自动检索记忆
+          "autoCapture": true,        // 对话后自动存储记忆
+          
+          // 三层记忆（可选）
+          "l0Enabled": true,         // 启用 L0 持久记忆
+          "l0Path": "memory.md",     // L0 文件路径
+          "l1Enabled": true,         // 启用 L1 结构化记忆
+          "l1Dir": "memory",         // L1 目录
+          "l1RecentDays": 7,         // 加载最近 7 天
+          "l1Categories": ["projects", "contacts", "tasks"],
+          "l1AutoWrite": false      // 不自动写入 L1（推荐生产环境）
         }
       }
     }

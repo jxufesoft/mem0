@@ -77,18 +77,76 @@ npm run build
 
 ## 配置说明
 
-### 3.1 配置参数
+### 3.1 核心参数
 
 | 参数 | 必需 | 默认值 | 说明 |
 |------|------|--------|------|
-| **mode** | 是 | "platform" | 运行模式："platform"、"open-source"、"server" |
-| **userId** | 否 | "default" | 默认用户 ID |
-| **autoCapture** | 否 | true | 自动捕获对话内容 |
-| **autoRecall** | 否 | true | 自动回忆相关记忆 |
-| **searchThreshold** | 否 | 0.5 | 搜索相似度阈值 (0-1) |
-| **topK** | 否 | 5 | 返回的最大结果数 |
+| **mode** | 是 | `"platform"` | 运行模式：`"platform"`（Mem0 Cloud）、`"open-source"`（自托管）、`"server"`（推荐） |
+| **userId** | 否 | `"default"` | 用户标识，用于隔离不同用户的记忆 |
+| **autoCapture** | 否 | `true` | 是否在对话后自动存储关键信息到 L2 向量存储 |
+| **autoRecall** | 否 | `true` | 是否在对话前自动检索相关记忆并加入上下文 |
+| **customInstructions** | 否 | `""` | 自定义指令，控制记忆存储行为（如"只存储用户偏好"） |
+| **customCategories** | 否 | `{}` | 自定义分类，如 `{"projects": "项目信息"}` |
+| **enableGraph** | 否 | `false` | 是否启用关系图谱 |
 
-### 3.2 Platform 模式配置
+### 3.2 性能参数
+
+| 参数 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| **topK** | 否 | `5` | 每次检索返回的最大记忆数量 |
+| **searchThreshold** | 否 | `0.3` | 搜索相似度阈值（0-1），越大越严格 |
+
+### 3.3 优化触发参数
+
+| 参数 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| **contextThresholdKB** | 否 | `50` | 上下文大小阈值（KB），超过时触发自动优化 |
+| **messageThreshold** | 否 | `10` | 消息数量阈值，达到后触发自动优化 |
+
+### 3.4 Platform 模式参数
+
+| 参数 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| **apiKey** | 是 | - | Mem0 Cloud API Key |
+| **orgId** | 否 | - | 组织 ID（可选） |
+| **projectId** | 否 | - | 项目 ID（可选） |
+
+### 3.5 Server 模式参数
+
+| 参数 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| **serverUrl** | 是 | - | Server 地址，如 `http://localhost:8000` |
+| **serverApiKey** | 是 | - | Server API Key |
+| **agentId** | 否 | `"openclaw-default"` | Agent 标识 |
+
+### 3.6 Open-Source 模式参数
+
+| 参数 | 必需 | 说明 |
+|------|------|------|
+| **customPrompt** | 否 | 自定义系统提示词 |
+| **oss.embedder** | 否 | Embedder 配置 |
+| **oss.vectorStore** | 否 | 向量存储配置 |
+| **oss.llm** | 否 | LLM 配置 |
+| **oss.historyDbPath** | 否 | 历史数据库路径，默认 `~/.mem0/history.db` |
+
+### 3.7 L0 层参数
+
+| 参数 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| **l0Enabled** | 否 | `true` | 是否启用 L0 层（持久记忆文件） |
+| **l0Path** | 否 | `"memory.md"` | L0 文件路径 |
+
+### 3.8 L1 层参数
+
+| 参数 | 必需 | 默认值 | 说明 |
+|------|------|--------|------|
+| **l1Enabled** | 否 | `true` | 是否启用 L1 层（结构化记忆） |
+| **l1Dir** | 否 | `"memory"` | L1 目录路径 |
+| **l1RecentDays** | 否 | `7` | 加载最近 N 天的日期文件 |
+| **l1Categories** | 否 | `["projects","contacts","tasks"]` | 分类文件名 |
+| **l1AutoWrite** | 否 | `false` | 是否在 `agent_end` 后自动分析对话并写入 L1 |
+
+### 3.9 Platform 模式配置
 
 ```json
 {
@@ -108,7 +166,7 @@ npm run build
 }
 ```
 
-### 3.3 Server 模式配置
+### 3.10 Server 模式配置
 
 ```json
 {
@@ -122,7 +180,7 @@ npm run build
 }
 ```
 
-### 3.4 Open-Source 模式配置
+### 3.11 Open-Source 模式配置
 
 ```json
 {
@@ -163,7 +221,7 @@ npm run build
 }
 ```
 
-### 3.5 三层记忆配置
+### 3.12 三层记忆配置
 
 ```json
 {

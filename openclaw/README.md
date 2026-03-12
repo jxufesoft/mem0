@@ -267,24 +267,74 @@ bash ~/.openclaw/scripts/memory_manager.sh
 
 ## 📋 配置选项
 
+### 核心参数
+
 | 选项 | 类型 | 默认值 | 描述 |
 |------|------|--------|------|
-| `mode` | string | - | 运行模式: platform, open-source, server |
-| `serverUrl` | string | - | Mem0 Server URL (Server 模式) |
-| `serverApiKey` | string | - | API Key (Server 模式) |
-| `agentId` | string | - | Agent 标识符 |
-| `userId` | string | default | 用户标识符 |
-| `autoRecall` | boolean | true | 自动召回记忆 |
-| `autoCapture` | boolean | true | 自动捕获记忆 |
-| `searchThreshold` | number | 0.2 | 搜索阈值 |
-| `topK` | number | 10 | 返回结果数 |
-| `l0Enabled` | boolean | false | 启用 L0 持久层 |
-| `l0Path` | string | memory.md | L0 文件路径 |
-| `l1Enabled` | boolean | false | 启用 L1 结构化层 |
-| `l1Dir` | string | memory | L1 目录路径 |
-| `l1RecentDays` | number | 7 | 最近天数 |
-| `l1Categories` | array | [] | 分类列表 |
-| `l1AutoWrite` | boolean | false | 自动写入 |
+| `mode` | string | `"platform"` | 运行模式: `platform`（Mem0 Cloud）、`open-source`（自托管）、`server`（推荐） |
+| `userId` | string | `"default"` | 用户标识，用于隔离不同用户的记忆 |
+| `autoRecall` | boolean | `true` | 是否在对话前自动检索相关记忆并加入上下文 |
+| `autoCapture` | boolean | `true` | 是否在对话后自动存储关键信息到 L2 向量存储 |
+| `customInstructions` | string | `""` | 自定义指令，控制记忆存储行为 |
+| `customCategories` | object | `{}` | 自定义分类，如 `{"projects": "项目信息"}` |
+| `enableGraph` | boolean | `false` | 是否启用关系图谱 |
+
+### 性能参数
+
+| 选项 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `topK` | number | `5` | 每次检索返回的最大记忆数量 |
+| `searchThreshold` | number | `0.3` | 搜索相似度阈值（0-1），越大越严格 |
+
+### 优化触发参数
+
+| 选项 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `contextThresholdKB` | number | `50` | 上下文大小阈值（KB），超过时触发自动优化 |
+| `messageThreshold` | number | `10` | 消息数量阈值，达到后触发自动优化 |
+
+### Platform 模式
+
+| 选项 | 类型 | 必需 | 描述 |
+|------|------|------|------|
+| `apiKey` | string | ✅ | Mem0 Cloud API Key |
+| `orgId` | string | ❌ | 组织 ID（可选） |
+| `projectId` | string | ❌ | 项目 ID（可选） |
+
+### Server 模式
+
+| 选项 | 类型 | 必需 | 描述 |
+|------|------|------|------|
+| `serverUrl` | string | ✅ | Server 地址，如 `http://localhost:8000` |
+| `serverApiKey` | string | ✅ | Server API Key |
+| `agentId` | string | ❌ | Agent 标识，默认 `openclaw-default` |
+
+### Open-Source 模式
+
+| 选项 | 类型 | 描述 |
+|------|------|------|
+| `customPrompt` | string | 自定义系统提示词 |
+| `oss.embedder` | object | Embedder 配置 |
+| `oss.vectorStore` | object | 向量存储配置 |
+| `oss.llm` | object | LLM 配置 |
+| `oss.historyDbPath` | string | 历史数据库路径，默认 `~/.mem0/history.db` |
+
+### L0 层
+
+| 选项 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `l0Enabled` | boolean | `true` | 是否启用 L0 层（持久记忆文件） |
+| `l0Path` | string | `"memory.md"` | L0 文件路径 |
+
+### L1 层
+
+| 选项 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| `l1Enabled` | boolean | `true` | 是否启用 L1 层（结构化记忆） |
+| `l1Dir` | string | `"memory"` | L1 目录路径 |
+| `l1RecentDays` | number | `7` | 加载最近 N 天的日期文件 |
+| `l1Categories` | array | `["projects","contacts","tasks"]` | 分类文件名 |
+| `l1AutoWrite` | boolean | `false` | 是否在 `agent_end` 后自动分析对话并写入 L1 |
 
 ## 🔧 系统服务设置
 

@@ -1,5 +1,58 @@
 # Changelog
 
+# Changelog
+
+All notable changes to the Mem0 OpenClaw Plugin.
+
+## [2.4.7] - 2026-03-12
+
+### Release Summary
+
+Fix optimization trigger timing and add automatic compact for L0/L1 content during system prompt injection.
+
+### Fixed
+
+- **Optimization Trigger Timing** - Moved `checkAndOptimize()` call to after message count update in `agent_end` event, ensuring message threshold (10 messages) triggers correctly
+
+- **Agent Context vs L0/L1 Size** - Clarified that contextThresholdKB and messageThreshold check L0/L1 file sizes, not agent's context window
+
+### Added
+
+- **Automatic Compact for System Prompt** - Added compact logic to `toSystemBlock()` methods:
+  - L0: Compact if > 8KB
+  - L1: Compact per file if > 2KB
+
+- **Compact Algorithm**:
+  - Preserve header (first 15 lines)
+  - Extract key information (headers, TODO, important config)
+  - Keep recent entries (last 30 lines)
+  - Add markers: `--- [已精简] ---`, `--- [最近记录] ---`
+
+### Architecture
+
+```
+System Prompt Building:
+┌─────────────────────────────────────────────────────────┐
+│  buildSystemPrompt()                                     │
+│    ├─> l0Manager.toSystemBlock() → Compact if > 8KB    │
+│    ├─> l1Manager.toSystemBlock() → Compact if > 2KB    │
+│    └─> L2 Vector Search                                 │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Upgrade from 2.4.6
+
+```bash
+# Build from source
+cd openclaw && npm pack
+openclaw plugins install ./mem0-openclaw-mem0-2.4.7.tgz
+
+# Restart gateway
+openclaw gateway restart
+```
+
+---
+
 All notable changes to the Mem0 OpenClaw Plugin.
 
 ## [2.2.1] - 2026-03-09

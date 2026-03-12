@@ -1602,6 +1602,19 @@ const memoryPlugin = {
         sessionMessageCount += event.messages.length;
         memoryOptimizer.updateMessageCount(sessionMessageCount);
 
+        // Check optimization trigger after message count update
+        // This ensures both conditions work: context size threshold AND message count threshold
+        try {
+          const optResult = await memoryOptimizer.checkAndOptimize();
+          if (optResult) {
+            api.logger.info(
+              `openclaw-mem0: auto-optimized after ${sessionMessageCount} messages (saved ${optResult.savedKB}KB)`,
+            );
+          }
+        } catch (e) {
+          api.logger.warn(`openclaw-mem0: optimization check failed: ${String(e)}`);
+        }
+
         // Track session ID and reset message count for new session
         const sessionId = (ctx as any)?.sessionKey ?? undefined;
         if (sessionId && sessionId !== currentSessionId) {

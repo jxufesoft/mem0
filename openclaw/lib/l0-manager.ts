@@ -130,13 +130,88 @@ export class L0Manager {
   }
 
   /**
-   * Format L0 content as a System Prompt block for injection
+   * Extract key information from content (headers, important items)
    */
-  async toSystemBlock(): Promise<string> {
-    const content = await this.readAll();
+  private extractKeyInfo(content: string, maxLines: number = 30): string {
+    const lines = content.split('\n');
+    if (lines.length <= maxLines) {
+      return content;
+    }
+
+    const keyLines: string[] = [];
+    const seen = new Set<string>();
+
+    // Key patterns for important content
+    const importantPatterns = [
+      /^#{1,3}\s+/,
+      /^[*-]\s+\[?\[?!.*\]\]?\s*/,
+      /^[*-]\s+.*(TODO|FIXME|HACK|任务|截止|deadline)/i,
+      /.*(重要|关键|core|注意|警告|critical|essential|must|必须|配置|config|环境|env).*/i,
+    ];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.length < 3) continue;
+
+      const isImportant = importantPatterns.some(p => p.test(trimmed));
+      if (isImportant && !seen.has(trimmed.slice(0, 80))) {
+        seen.add(trimmed.slice(0, 80));
+        keyLines.push(line);
+      }
+      if (keyLines.length >= 15) break;
+    }
+
+    const recentLines = lines.slice(-20);
+    for (const line of recentLines) {
+      const trimmed = line.trim();
+      if (trimmed && !seen.has(trimmed.slice(0, 80))) {
+        keyLines.push(line);
+      }
+    }
+
+    return keyLines.join('\n');
+  }
+
+  /**
+   * Compact content for system prompt injection
+   */
+  private compactContent(content: string, maxBytes: number = 8000): string {
+    const bytes = Buffer.byteLength(content, 'utf-8');
+    if (bytes <= maxBytes) {
+      return content;
+    }
+
+    const lines = content.split('\n');
+    const header = lines.slice(0, 15);
+    const keyInfo = this.extractKeyInfo(lines.slice(15).join('\n'), 30);
+    const recent = lines.slice(-30);
+
+    const compacted = [
+      ...header,
+      '',
+      '--- [已精简] ---',
+      '',
+      keyInfo,
+      '',
+      '--- [最近记录] ---',
+      ...recent,
+    ].join('\n');
+
+    return compacted;
+  }
+
+  /**
+   * Format L0 content as a System Prompt block for injection
+   * With automatic compacting if content is too large
+   */
+  async toSystemBlock(maxBytes: number = 8000): Promise<string> {
+    let content = await this.readAll();
     if (!content.trim()) {
       return "";
     }
+
+    // Compact if needed
+    content = this.compactContent(content, maxBytes);
 
     return `<!-- L0: Persistent Memory -->\n${content}\n<!-- End L0 -->`;
   }

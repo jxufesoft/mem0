@@ -254,23 +254,90 @@ export class L1Manager {
   }
 
   /**
-   * Format L1 content as a System Prompt block for injection
+   * Extract key information from L1 file content
    */
-  async toSystemBlock(): Promise<string> {
-    const context = await this.readContext();
-    const parts: string[] = [];
+  private extractKeyInfo(content: string): string {
+    const lines = content.split('\n');
+    const keyLines: string[] = [];
+    const seen = new Set<string>();
 
-    // Add date files
-    for (const file of context.dateFiles) {
-      if (file.content.trim()) {
-        parts.push(`### ${file.date}\n${file.content.trim()}`);
+    const importantPatterns = [
+      /^#{1,3}\s+/,
+      /^[*-]\s+\[?\[?!.*\]\]?\s*/,
+      /^[*-]\s+.*(TODO|FIXME|HACK|任务|截止|deadline)/i,
+      /.*(重要|关键|core|注意|警告|critical|essential|must|必须|配置|config|项目|project|任务|task).*/i,
+    ];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.length < 3) continue;
+
+      const isImportant = importantPatterns.some(p => p.test(trimmed));
+      if (isImportant && !seen.has(trimmed.slice(0, 80))) {
+        seen.add(trimmed.slice(0, 80));
+        keyLines.push(line);
+      }
+      if (keyLines.length >= 10) break;
+    }
+
+    // Add recent lines
+    const recentLines = lines.slice(-15);
+    for (const line of recentLines) {
+      const trimmed = line.trim();
+      if (trimmed && !seen.has(trimmed.slice(0, 80))) {
+        keyLines.push(line);
       }
     }
 
-    // Add category files
+    return keyLines.join('\n');
+  }
+
+  /**
+   * Compact a single L1 file content
+   */
+  private compactFileContent(content: string, maxBytes: number = 2000): string {
+    const bytes = Buffer.byteLength(content, 'utf-8');
+    if (bytes <= maxBytes) {
+      return content;
+    }
+
+    const lines = content.split('\n');
+    const header = lines.slice(0, 10);
+    const keyInfo = this.extractKeyInfo(lines.slice(10).join('\n'));
+    const recent = lines.slice(-15);
+
+    return [
+      ...header,
+      '',
+      '--- [已精简] ---',
+      keyInfo,
+      '',
+      '--- [最近] ---',
+      ...recent,
+    ].join('\n');
+  }
+
+  /**
+   * Format L1 content as a System Prompt block for injection
+   * With automatic compacting if content is too large
+   */
+  async toSystemBlock(maxBytesPerFile: number = 2000): Promise<string> {
+    const context = await this.readContext();
+    const parts: string[] = [];
+
+    // Add date files (compacted)
+    for (const file of context.dateFiles) {
+      if (file.content.trim()) {
+        const compacted = this.compactFileContent(file.content, maxBytesPerFile);
+        parts.push(`### ${file.date}\n${compacted.trim()}`);
+      }
+    }
+
+    // Add category files (compacted)
     for (const file of context.categoryFiles) {
       if (file.content.trim()) {
-        parts.push(`### ${file.category}\n${file.content.trim()}`);
+        const compacted = this.compactFileContent(file.content, maxBytesPerFile);
+        parts.push(`### ${file.category}\n${compacted.trim()}`);
       }
     }
 

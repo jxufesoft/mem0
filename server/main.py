@@ -548,7 +548,7 @@ async def create_api_key(req: CreateKeyRequest):
 @app.get("/admin/keys", summary="列出所有 API Keys", dependencies=[Depends(get_admin_key)])
 async def list_api_keys():
     """
-    列出所有 API Keys（不显示完整密钥）。
+    列出所有 API Keys（显示完整密钥）。
 
     **需要管理员权限**: 使用 ADMIN_SECRET_KEY 环境变量值作为 X-API-Key。
     """
@@ -556,7 +556,7 @@ async def list_api_keys():
     result = []
     for key, data in keys.items():
         result.append({
-            "key_prefix": key[:16] + "...",
+            "api_key": key,
             "agent_id": data["agent_id"],
             "description": data["description"],
             "created_at": data["created_at"],

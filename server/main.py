@@ -365,17 +365,17 @@ class Message(BaseModel):
 
 class MemoryCreate(BaseModel):
     messages: List[Message] = Field(..., description="List of messages to store.")
-    user_id: Optional[str] = None
-    agent_id: Optional[str] = None
+    user_id: str = Field(..., description="用户ID，用于数据归属和隔离")
+    agent_id: str = Field(..., description="Agent ID，用于数据归属和隔离")
     run_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
 class SearchRequest(BaseModel):
     query: str = Field(..., description="Search query.")
-    user_id: Optional[str] = None
+    user_id: str = Field(..., description="用户ID，用于数据归属和隔离")
+    agent_id: str = Field(..., description="Agent ID，用于数据归属和隔离")
     run_id: Optional[str] = None
-    agent_id: Optional[str] = None
     filters: Optional[Dict[str, Any]] = None
     limit: Optional[int] = Field(10, description="Number of results to return.")
 
@@ -598,7 +598,7 @@ def compute_memory_hash(data: str) -> str:
     return hashlib.md5(data.encode()).hexdigest()
 
 
-async def find_duplicates_by_hash(memory_instance, agent_id: str, user_id: Optional[str] = None) -> Dict[str, List[str]]:
+async def find_duplicates_by_hash(memory_instance, agent_id: str, user_id: str = ...) -> Dict[str, List[str]]:
     """
     Find duplicate memories by hash.
 
@@ -635,7 +635,7 @@ async def find_duplicates_by_hash(memory_instance, agent_id: str, user_id: Optio
         return {}
 
 
-async def check_memory_exists_by_hash(memory_instance, content_hash: str, agent_id: str, user_id: Optional[str] = None) -> Optional[Dict]:
+async def check_memory_exists_by_hash(memory_instance, content_hash: str, agent_id: str, user_id: str = ...) -> Optional[Dict]:
     """
     Check if a memory with the given hash already exists.
 
@@ -677,13 +677,10 @@ async def add_memory(memory_create: MemoryCreate, request: Request):
     从消息中提取事实并存储到向量数据库。
     自动进行 hash 去重，避免存储完全相同的记忆。
 
-    **必需参数**: 至少提供 user_id、agent_id 或 run_id 之一。
+    **必需参数**: user_id 和 agent_id（用于数据归属和隔离）。
     """
-    if not any([memory_create.user_id, memory_create.agent_id, memory_create.run_id]):
-        raise HTTPException(status_code=400, detail="At least one identifier (user_id, agent_id, run_id) is required.")
-
     # Get agent instance for this agent_id
-    agent_id = memory_create.agent_id or "default"
+    agent_id = memory_create.agent_id
     user_id = memory_create.user_id
     memory_instance = await get_agent_instance(agent_id)
 
@@ -736,19 +733,15 @@ async def add_memory(memory_create: MemoryCreate, request: Request):
 
 @app.get("/memories", summary="获取记忆列表", dependencies=[Depends(get_api_key)])
 async def get_all_memories(
-    user_id: Optional[str] = None,
+    user_id: str,
+    agent_id: str,
     run_id: Optional[str] = None,
-    agent_id: Optional[str] = None,
 ):
     """
     检索存储的记忆。
 
-    **必需参数**: 至少提供 user_id、agent_id 或 run_id 之一。
+    **必需参数**: user_id 和 agent_id（用于数据归属和隔离）。
     """
-    if not any([user_id, run_id, agent_id]):
-        raise HTTPException(status_code=400, detail="At least one identifier is required.")
-
-    agent_id = agent_id or "default"
     memory_instance = await get_agent_instance(agent_id)
 
     try:
@@ -762,7 +755,7 @@ async def get_all_memories(
 
 
 @app.get("/memories/{memory_id}", summary="获取单个记忆", dependencies=[Depends(get_api_key)])
-async def get_memory(memory_id: str, agent_id: Optional[str] = "default"):
+async def get_memory(memory_id: str, user_id: str, agent_id: str):
     """
     通过 ID 检索特定记忆。
     """
@@ -781,7 +774,7 @@ async def search_memories(search_req: SearchRequest):
 
     使用向量语义搜索返回相关记忆。
     """
-    agent_id = search_req.agent_id or "default"
+    agent_id = search_req.agent_id
     memory_instance = await get_agent_instance(agent_id)
 
     try:
@@ -800,7 +793,7 @@ async def search_memories(search_req: SearchRequest):
 
 
 @app.put("/memories/{memory_id}", summary="更新记忆", dependencies=[Depends(get_api_key)])
-async def update_memory(memory_id: str, updated_memory: Dict[str, Any], agent_id: Optional[str] = "default"):
+async def update_memory(memory_id: str, updated_memory: Dict[str, Any], user_id: str, agent_id: str):
     """
     更新现有记忆的内容。
 
@@ -826,7 +819,7 @@ async def update_memory(memory_id: str, updated_memory: Dict[str, Any], agent_id
 
 
 @app.get("/memories/{memory_id}/history", summary="获取记忆历史", dependencies=[Depends(get_api_key)])
-async def memory_history(memory_id: str, agent_id: Optional[str] = "default"):
+async def memory_history(memory_id: str, user_id: str, agent_id: str):
     """
     获取特定记忆的变更历史。
     """
@@ -839,7 +832,7 @@ async def memory_history(memory_id: str, agent_id: Optional[str] = "default"):
 
 
 @app.delete("/memories/{memory_id}", summary="删除记忆", dependencies=[Depends(get_api_key)])
-async def delete_memory(memory_id: str, agent_id: Optional[str] = "default"):
+async def delete_memory(memory_id: str, user_id: str, agent_id: str):
     """
     通过 ID 删除特定记忆。
     """
@@ -854,19 +847,19 @@ async def delete_memory(memory_id: str, agent_id: Optional[str] = "default"):
 
 @app.delete("/memories", summary="批量删除记忆", dependencies=[Depends(get_api_key)])
 async def delete_all_memories(
-    user_id: Optional[str] = None,
+    user_id: str,
+    agent_id: str,
     run_id: Optional[str] = None,
-    agent_id: Optional[str] = None,
 ):
     """
     根据标识符批量删除记忆。
 
     **必需参数**: 至少提供 user_id、agent_id 或 run_id 之一。
     """
-    if not any([user_id, run_id, agent_id]):
-        raise HTTPException(status_code=400, detail="At least one identifier is required.")
+    # Removed - now user_id and agent_id are required
+        
 
-    agent_id = agent_id or "default"
+    agent_id = agent_id
     memory_instance = await get_agent_instance(agent_id)
 
     try:
@@ -881,7 +874,7 @@ async def delete_all_memories(
 
 
 @app.post("/reset", summary="重置所有记忆", dependencies=[Depends(get_api_key)])
-async def reset_memory(agent_id: Optional[str] = "default"):
+async def reset_memory(user_id: str, agent_id: str):
     """
     完全重置指定 Agent 的所有记忆。
 
@@ -907,8 +900,8 @@ async def reset_memory(agent_id: Optional[str] = "default"):
 
 @app.get("/deduplicate", summary="查找重复记忆", dependencies=[Depends(get_api_key)])
 async def find_duplicates(
-    agent_id: Optional[str] = "default",
-    user_id: Optional[str] = None,
+    agent_id: str,
+    user_id: str,
 ):
     """
     查找指定 Agent/User 的重复记忆。
@@ -932,8 +925,8 @@ async def find_duplicates(
 
 @app.post("/deduplicate", summary="清理重复记忆", dependencies=[Depends(get_api_key)])
 async def cleanup_duplicates(
-    agent_id: Optional[str] = "default",
-    user_id: Optional[str] = None,
+    agent_id: str,
+    user_id: str,
     dry_run: bool = True,
 ):
     """

@@ -884,6 +884,7 @@ const memoryPlugin = {
     // Helper: build add options
     function buildAddOptions(userIdOverride?: string, runId?: string): AddOptions {
       const opts: AddOptions = {
+        agent_id: cfg.agentId || "openclaw-main",
         user_id: userIdOverride || cfg.userId,
         source: "OPENCLAW",
       };
@@ -904,6 +905,7 @@ const memoryPlugin = {
       runId?: string,
     ): SearchOptions {
       const opts: SearchOptions = {
+        agent_id: cfg.agentId || "openclaw-main",
         user_id: userIdOverride || cfg.userId,
         top_k: limit ?? cfg.topK,
         limit: limit ?? cfg.topK,

@@ -27,8 +27,9 @@ export interface MemoryItem {
   id: string;
   memory: string;
   user_id?: string;
-  agent_id?: string;
+  agent_id: string;
   run_id?: string;
+  agent_id: string;
   score?: number;
   categories?: string[];
   metadata?: Record<string, unknown>;
@@ -48,15 +49,14 @@ export interface SearchOptions {
   query: string;
   user_id: string;
   run_id?: string;
-  agent_id?: string;
+  agent_id: string;
   limit?: number;
   filters?: Record<string, unknown>;
 }
 
 export interface ListOptions {
-  user_id: string;
-  run_id?: string;
-  agent_id?: string;
+  agent_id: string;
+  agent_id: string;
 }
 
 
@@ -94,7 +94,7 @@ export class ServerClient {
   /**
    * Add memories to the server
    */
-  async add(messages: Message[], options: { user_id: string; run_id?: string; agent_id?: string; metadata?: Record<string, unknown> }): Promise<AddResult> {
+  async add(messages: Message[], options: { user_id: string; run_id?: string; agent_id: string; metadata?: Record<string, unknown> }): Promise<AddResult> {
     const response = await this.client.post<AddResult>("/memories", {
       messages,
       ...options,
@@ -117,7 +117,7 @@ export class ServerClient {
     const params = new URLSearchParams();
     if (options.user_id) params.append("user_id", options.user_id);
     if (options.run_id) params.append("run_id", options.run_id);
-    if (options.agent_id) params.append("agent_id", options.agent_id);
+    if (options.agent_id) params.append  # Required("agent_id", options.agent_id);
 
     const response = await this.client.get(`/memories?${params.toString()}`);
     // Server returns { results: [...] } or direct array
@@ -128,8 +128,8 @@ export class ServerClient {
   /**
    * Get a specific memory by ID
    */
-  async get(memoryId: string, agent_id?: string): Promise<MemoryItem> {
-    const params = agent_id ? `?agent_id=${agent_id}` : "";
+  async get(memoryId: string, user_id: string, agent_id: string): Promise<MemoryItem> {
+    const params = `?user_id=${user_id}&agent_id=${agent_id}` : "";
     const response = await this.client.get<MemoryItem>(`/memories/${memoryId}${params}`);
     return response.data;
   }
@@ -137,8 +137,8 @@ export class ServerClient {
   /**
    * Forget (delete) a specific memory by ID
    */
-  async forget(memoryId: string, agent_id?: string): Promise<void> {
-    const params = agent_id ? `?agent_id=${agent_id}` : "";
+  async forget(memoryId: string, user_id: string, agent_id: string): Promise<void> {
+    const params = `?user_id=${user_id}&agent_id=${agent_id}` : "";
     await this.client.delete(`/memories/${memoryId}${params}`);
   }
 

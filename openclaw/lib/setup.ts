@@ -940,7 +940,7 @@ async function autoWriteConfig(config: SetupConfig): Promise<void> {
         topK: 10,
         searchThreshold: 0.3,
         l0Enabled: false,
-        l1Enabled: false,
+        l1Enabled: true,
         l1AutoWrite: true,
         contextThresholdKB: 50,
         messageThreshold: 10,

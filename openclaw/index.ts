@@ -339,6 +339,7 @@ class ServerProvider implements Mem0Provider {
     serverUrl: string,
     apiKey: string,
     private readonly agentId?: string,
+    private readonly userId?: string,
   ) {
     this.client = new ServerClient({ serverUrl, apiKey });
   }
@@ -348,9 +349,9 @@ class ServerProvider implements Mem0Provider {
     options: AddOptions,
   ): Promise<AddResult> {
     const result = await this.client.add(messages, {
-      user_id: options.user_id,
+      user_id: options.user_id || this.userId || "default",
       run_id: options.run_id,
-      agent_id: this.agentId,
+      agent_id: this.agentId || "openclaw-main",
     });
     return result;
   }
@@ -358,9 +359,9 @@ class ServerProvider implements Mem0Provider {
   async search(query: string, options: SearchOptions): Promise<MemoryItem[]> {
     const results = await this.client.search({
       query,
-      user_id: options.user_id,
+      user_id: options.user_id || this.userId || "default",
       run_id: options.run_id,
-      agent_id: this.agentId,
+      agent_id: this.agentId || "openclaw-main",
       limit: options.limit ?? options.top_k,
     });
 
@@ -372,19 +373,19 @@ class ServerProvider implements Mem0Provider {
   }
 
   async get(memoryId: string): Promise<MemoryItem> {
-    return await this.client.get(memoryId, this.agentId);
+    return await this.client.get(memoryId, this.userId || "default", this.agentId || "openclaw-main");
   }
 
   async getAll(options: ListOptions): Promise<MemoryItem[]> {
     return await this.client.list({
-      user_id: options.user_id,
+      user_id: options.user_id || this.userId || "default",
       run_id: options.run_id,
-      agent_id: this.agentId,
+      agent_id: this.agentId || "openclaw-main",
     });
   }
 
   async delete(memoryId: string): Promise<void> {
-    await this.client.forget(memoryId, this.agentId);
+    await this.client.forget(memoryId, this.userId || "default", this.agentId || "openclaw-main");
   }
 }
 
@@ -720,7 +721,7 @@ function createProvider(
   api: OpenClawPluginApi,
 ): Mem0Provider {
   if (cfg.mode === "server") {
-    return new ServerProvider(cfg.serverUrl!, cfg.serverApiKey!, cfg.agentId);
+    return new ServerProvider(cfg.serverUrl!, cfg.serverApiKey!, cfg.agentId, cfg.userId);
   }
 
   if (cfg.mode === "open-source") {

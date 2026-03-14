@@ -238,16 +238,15 @@ def build_agent_config(agent_id: str) -> Dict[str, Any]:
 
     # Optional: Add graph store if all required settings are available
     # Note: Graph memory currently requires user_id for some operations
-    # Temporarily disabled to support agent_id-only queries
-    # if NEO4J_URI and NEO4J_USERNAME and NEO4J_PASSWORD:
-    #     config["graph_store"] = {
-    #         "provider": "neo4j",
-    #         "config": {
-    #             "url": NEO4J_URI,
-    #             "username": NEO4J_USERNAME,
-    #             "password": NEO4J_PASSWORD,
-    #         },
-    #     }
+    if NEO4J_URI and NEO4J_USERNAME and NEO4J_PASSWORD:
+        config["graph_store"] = {
+            "provider": "neo4j",
+            "config": {
+                "url": NEO4J_URI,
+                "username": NEO4J_USERNAME,
+                "password": NEO4J_PASSWORD,
+            },
+        }
 
     return config
 
@@ -381,6 +380,7 @@ class SearchRequest(BaseModel):
 
 
 class CreateKeyRequest(BaseModel):
+    user_id: Optional[str] = Field("", description="User ID for this API key.")
     agent_id: str = Field(..., description="Agent ID for this API key.")
     description: Optional[str] = Field("", description="Description for the API key.")
 
@@ -529,6 +529,7 @@ async def create_api_key(req: CreateKeyRequest):
     api_key = generate_api_key()
 
     keys[api_key] = {
+        "user_id": req.user_id,
         "agent_id": req.agent_id,
         "description": req.description,
         "created_at": time.time(),
@@ -536,10 +537,11 @@ async def create_api_key(req: CreateKeyRequest):
     }
 
     save_api_keys(keys)
-    logger.info(f"Created API key for agent: {req.agent_id}")
+    logger.info(f"Created API key for user: {req.user_id}, agent: {req.agent_id}")
 
     return {
         "api_key": api_key,
+        "user_id": req.user_id,
         "agent_id": req.agent_id,
         "description": req.description,
     }
@@ -557,6 +559,7 @@ async def list_api_keys():
     for key, data in keys.items():
         result.append({
             "api_key": key,
+            "user_id": data.get("user_id", ""),
             "agent_id": data["agent_id"],
             "description": data["description"],
             "created_at": data["created_at"],

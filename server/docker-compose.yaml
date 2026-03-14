@@ -12,37 +12,38 @@ services:
     networks:
       - mem0_network
     volumes:
-      - ./history:/app/history      # History db location. By default, it creates a history.db file on the server folder
-      - .:/app                      # Server code. This allows to reload the app when the server code is updated
-      - ../mem0:/app/packages/mem0  # Mem0 library. This allows to reload the app when the library code is updated
+      - ./history:/app/history      # History db location (API keys, etc.)
+      - .:/app                      # Server code
+      - ../mem0:/app/packages/mem0  # Mem0 library
     depends_on:
       postgres:
         condition: service_healthy
       neo4j:
         condition: service_healthy
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload  # Enable auto-reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     environment:
-      - PYTHONDONTWRITEBYTECODE=1  # Prevents Python from writing .pyc files
-      - PYTHONUNBUFFERED=1  # Ensures Python output is sent straight to terminal
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
 
   postgres:
-      image: ankane/pgvector:v0.5.1
-      restart: on-failure
-      shm_size: "128mb" # Increase this if vacuuming fails with a "no space left on device" error
-      networks:
-        - mem0_network
-      environment:
-        - POSTGRES_USER=postgres
-        - POSTGRES_PASSWORD=postgres
-      healthcheck:
-        test: ["CMD", "pg_isready", "-q", "-d", "postgres", "-U", "postgres"]
-        interval: 5s
-        timeout: 5s
-        retries: 5
-      volumes:
-        - postgres_db:/var/lib/postgresql/data
-      ports:
-        - "8432:5432"
+    image: ankane/pgvector:v0.5.1
+    restart: on-failure
+    shm_size: "128mb"
+    networks:
+      - mem0_network
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    healthcheck:
+      test: ["CMD", "pg_isready", "-q", "-d", "postgres", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    ports:
+      - "8432:5432"
+
   neo4j:
     image: neo4j:5.26.4
     networks:
@@ -54,20 +55,32 @@ services:
       retries: 20
       start_period: 90s
     ports:
-      - "8474:7474" # HTTP
-      - "8687:7687" # Bolt
+      - "8474:7474"
+      - "8687:7687"
     volumes:
-      - neo4j_data:/data
+      - ./data/neo4j:/data
+      - ./data/neo4j/logs:/logs
     environment:
       - NEO4J_AUTH=neo4j/mem0graph
-      - NEO4J_PLUGINS=["apoc"]  # Add this line to install APOC
+      - NEO4J_PLUGINS=["apoc"]
       - NEO4J_apoc_export_file_enabled=true
       - NEO4J_apoc_import_file_enabled=true
       - NEO4J_apoc_import_file_use__neo4j__config=true
 
-volumes:
-  neo4j_data:
-  postgres_db:
+  redis:
+    image: redis:7-alpine
+    networks:
+      - mem0_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    command: redis-server --appendonly yes
 
 networks:
   mem0_network:

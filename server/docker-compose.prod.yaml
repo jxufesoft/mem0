@@ -3,8 +3,8 @@ name: mem0-prod
 services:
   mem0:
     build:
-      context: ..
-      dockerfile: server/Dockerfile
+      context: .  # Use server directory
+      dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "8000:8000"

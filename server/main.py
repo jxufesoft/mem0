@@ -205,7 +205,7 @@ def build_agent_config(agent_id: str) -> Dict[str, Any]:
                 "dbname": POSTGRES_DB,
                 "user": POSTGRES_USER,
                 "password": POSTGRES_PASSWORD,
-                "collection_name": f"{POSTGRES_COLLECTION_NAME}_{agent_id.replace('-', '_')}",
+                "collection_name": POSTGRES_COLLECTION_NAME,
                 "embedding_model_dims": EMBEDDING_DIMENSIONS,
             },
         },

@@ -445,6 +445,79 @@ async def get_api_key(
     return api_key
 
 
+async def get_api_key_with_data(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> Dict[str, Any]:
+    """
+    依赖注入：验证 API Key 并返回 key 数据。
+
+    返回 dict 包含 api_key 和 key_data (包括 user_id, agent_id)。
+    用于需要严格 user_id/agent_id 绑定的端点。
+    """
+    api_key = credentials.credentials
+
+    # 验证普通 API Key
+    key_data = verify_api_key(api_key)
+    if not key_data:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid API key",
+        )
+
+    # 检查速率限制
+    within_limit = await redis_manager.check_rate_limit(api_key, RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW)
+    if not within_limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded",
+        )
+
+    return {"api_key": api_key, "key_data": key_data}
+
+
+def require_user_id_match(user_id_param: str = None, agent_id_param: str = None):
+    """
+    依赖工厂：验证请求的 user_id/agent_id 与 API Key 绑定的匹配。
+
+    Args:
+        user_id_param: 请求参数中的 user_id 字段名
+        agent_id_param: 请求参数中的 agent_id 字段名
+
+    如果 API Key 绑定了 user_id，则必须与请求的 user_id 匹配。
+    如果 API Key 绑定了 agent_id，则必须与请求的 agent_id 匹配。
+    """
+    async def validate(
+        key_info: Dict[str, Any] = Depends(get_api_key_with_data),
+        request: Request = None,
+    ):
+        key_data = key_info["key_data"]
+        key_user_id = key_data.get("user_id", "")
+        key_agent_id = key_data.get("agent_id", "")
+
+        # 从 query 参数获取请求的 user_id 和 agent_id
+        query_params = request.query_params if request else {}
+
+        if user_id_param:
+            request_user_id = query_params.get(user_id_param, "")
+            if key_user_id and request_user_id and key_user_id != request_user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"API key user_id mismatch: key bound to '{key_user_id}', but requested '{request_user_id}'",
+                )
+
+        if agent_id_param:
+            request_agent_id = query_params.get(agent_id_param, "")
+            if key_agent_id and request_agent_id and key_agent_id != request_agent_id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"API key agent_id mismatch: key bound to '{key_agent_id}', but requested '{request_agent_id}'",
+                )
+
+        return key_info
+
+    return validate
+
+
 async def get_admin_key(
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> str:
@@ -672,8 +745,12 @@ async def set_config(config: Dict[str, Any]):
     return {"message": "Configuration should be managed via environment variables"}
 
 
-@app.post("/memories", summary="创建记忆", dependencies=[Depends(get_api_key)])
-async def add_memory(memory_create: MemoryCreate, request: Request):
+@app.post("/memories", summary="创建记忆")
+async def add_memory(
+    memory_create: MemoryCreate,
+    key_info: Dict[str, Any] = Depends(get_api_key_with_data),
+    request: Request = None
+):
     """
     存储新的记忆。
 
@@ -681,7 +758,26 @@ async def add_memory(memory_create: MemoryCreate, request: Request):
     自动进行 hash 去重，避免存储完全相同的记忆。
 
     **必需参数**: user_id 和 agent_id（用于数据归属和隔离）。
+
+    **严格绑定**: 如果 API Key 绑定了 user_id/agent_id，则必须与请求参数匹配。
     """
+    # 验证 API Key 绑定的 user_id/agent_id
+    key_data = key_info["key_data"]
+    key_user_id = key_data.get("user_id", "")
+    key_agent_id = key_data.get("agent_id", "")
+
+    if key_user_id and key_user_id != memory_create.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key user_id mismatch: key bound to '{key_user_id}', but requested '{memory_create.user_id}'",
+        )
+
+    if key_agent_id and key_agent_id != memory_create.agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key agent_id mismatch: key bound to '{key_agent_id}', but requested '{memory_create.agent_id}'",
+        )
+
     # Get agent instance for this agent_id
     agent_id = memory_create.agent_id
     user_id = memory_create.user_id
@@ -734,17 +830,37 @@ async def add_memory(memory_create: MemoryCreate, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/memories", summary="获取记忆列表", dependencies=[Depends(get_api_key)])
+@app.get("/memories", summary="获取记忆列表")
 async def get_all_memories(
     user_id: str,
     agent_id: str,
     run_id: Optional[str] = None,
+    key_info: Dict[str, Any] = Depends(get_api_key_with_data),
 ):
     """
     检索存储的记忆。
 
     **必需参数**: user_id 和 agent_id（用于数据归属和隔离）。
+
+    **严格绑定**: 如果 API Key 绑定了 user_id/agent_id，则必须与请求参数匹配。
     """
+    # 验证 API Key 绑定的 user_id/agent_id
+    key_data = key_info["key_data"]
+    key_user_id = key_data.get("user_id", "")
+    key_agent_id = key_data.get("agent_id", "")
+
+    if key_user_id and key_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key user_id mismatch: key bound to '{key_user_id}', but requested '{user_id}'",
+        )
+
+    if key_agent_id and key_agent_id != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key agent_id mismatch: key bound to '{key_agent_id}', but requested '{agent_id}'",
+        )
+
     memory_instance = await get_agent_instance(agent_id)
 
     try:
@@ -757,11 +873,35 @@ async def get_all_memories(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/memories/{memory_id}", summary="获取单个记忆", dependencies=[Depends(get_api_key)])
-async def get_memory(memory_id: str, user_id: str, agent_id: str):
+@app.get("/memories/{memory_id}", summary="获取单个记忆")
+async def get_memory(
+    memory_id: str,
+    user_id: str,
+    agent_id: str,
+    key_info: Dict[str, Any] = Depends(get_api_key_with_data),
+):
     """
     通过 ID 检索特定记忆。
+
+    **严格绑定**: 如果 API Key 绑定了 user_id/agent_id，则必须与请求参数匹配。
     """
+    # 验证 API Key 绑定的 user_id/agent_id
+    key_data = key_info["key_data"]
+    key_user_id = key_data.get("user_id", "")
+    key_agent_id = key_data.get("agent_id", "")
+
+    if key_user_id and key_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key user_id mismatch: key bound to '{key_user_id}', but requested '{user_id}'",
+        )
+
+    if key_agent_id and key_agent_id != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key agent_id mismatch: key bound to '{key_agent_id}', but requested '{agent_id}'",
+        )
+
     memory_instance = await get_agent_instance(agent_id)
     try:
         return memory_instance.get(memory_id)
@@ -770,13 +910,35 @@ async def get_memory(memory_id: str, user_id: str, agent_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/search", summary="搜索记忆", dependencies=[Depends(get_api_key)])
-async def search_memories(search_req: SearchRequest):
+@app.post("/search", summary="搜索记忆")
+async def search_memories(
+    search_req: SearchRequest,
+    key_info: Dict[str, Any] = Depends(get_api_key_with_data),
+):
     """
     基于查询语句搜索记忆。
 
     使用向量语义搜索返回相关记忆。
+
+    **严格绑定**: 如果 API Key 绑定了 user_id/agent_id，则必须与请求参数匹配。
     """
+    # 验证 API Key 绑定的 user_id/agent_id
+    key_data = key_info["key_data"]
+    key_user_id = key_data.get("user_id", "")
+    key_agent_id = key_data.get("agent_id", "")
+
+    if key_user_id and key_user_id != search_req.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key user_id mismatch: key bound to '{key_user_id}', but requested '{search_req.user_id}'",
+        )
+
+    if key_agent_id and key_agent_id != search_req.agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key agent_id mismatch: key bound to '{key_agent_id}', but requested '{search_req.agent_id}'",
+        )
+
     agent_id = search_req.agent_id
     memory_instance = await get_agent_instance(agent_id)
 
@@ -795,15 +957,40 @@ async def search_memories(search_req: SearchRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.put("/memories/{memory_id}", summary="更新记忆", dependencies=[Depends(get_api_key)])
-async def update_memory(memory_id: str, updated_memory: Dict[str, Any], user_id: str, agent_id: str):
+@app.put("/memories/{memory_id}", summary="更新记忆")
+async def update_memory(
+    memory_id: str,
+    updated_memory: Dict[str, Any],
+    user_id: str,
+    agent_id: str,
+    key_info: Dict[str, Any] = Depends(get_api_key_with_data),
+):
     """
     更新现有记忆的内容。
 
     支持两种请求格式：
     - `{"data": "新内容"}`
     - `{"memory": "新内容"}`
+
+    **严格绑定**: 如果 API Key 绑定了 user_id/agent_id，则必须与请求参数匹配。
     """
+    # 验证 API Key 绑定的 user_id/agent_id
+    key_data = key_info["key_data"]
+    key_user_id = key_data.get("user_id", "")
+    key_agent_id = key_data.get("agent_id", "")
+
+    if key_user_id and key_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key user_id mismatch: key bound to '{key_user_id}', but requested '{user_id}'",
+        )
+
+    if key_agent_id and key_agent_id != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key agent_id mismatch: key bound to '{key_agent_id}', but requested '{agent_id}'",
+        )
+
     memory_instance = await get_agent_instance(agent_id)
     try:
         # Extract data from request - support both string and dict format
@@ -821,11 +1008,35 @@ async def update_memory(memory_id: str, updated_memory: Dict[str, Any], user_id:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/memories/{memory_id}/history", summary="获取记忆历史", dependencies=[Depends(get_api_key)])
-async def memory_history(memory_id: str, user_id: str, agent_id: str):
+@app.get("/memories/{memory_id}/history", summary="获取记忆历史")
+async def memory_history(
+    memory_id: str,
+    user_id: str,
+    agent_id: str,
+    key_info: Dict[str, Any] = Depends(get_api_key_with_data),
+):
     """
     获取特定记忆的变更历史。
+
+    **严格绑定**: 如果 API Key 绑定了 user_id/agent_id，则必须与请求参数匹配。
     """
+    # 验证 API Key 绑定的 user_id/agent_id
+    key_data = key_info["key_data"]
+    key_user_id = key_data.get("user_id", "")
+    key_agent_id = key_data.get("agent_id", "")
+
+    if key_user_id and key_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key user_id mismatch: key bound to '{key_user_id}', but requested '{user_id}'",
+        )
+
+    if key_agent_id and key_agent_id != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key agent_id mismatch: key bound to '{key_agent_id}', but requested '{agent_id}'",
+        )
+
     memory_instance = await get_agent_instance(agent_id)
     try:
         return memory_instance.history(memory_id=memory_id)
@@ -834,11 +1045,35 @@ async def memory_history(memory_id: str, user_id: str, agent_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/memories/{memory_id}", summary="删除记忆", dependencies=[Depends(get_api_key)])
-async def delete_memory(memory_id: str, user_id: str, agent_id: str):
+@app.delete("/memories/{memory_id}", summary="删除记忆")
+async def delete_memory(
+    memory_id: str,
+    user_id: str,
+    agent_id: str,
+    key_info: Dict[str, Any] = Depends(get_api_key_with_data),
+):
     """
     通过 ID 删除特定记忆。
+
+    **严格绑定**: 如果 API Key 绑定了 user_id/agent_id，则必须与请求参数匹配。
     """
+    # 验证 API Key 绑定的 user_id/agent_id
+    key_data = key_info["key_data"]
+    key_user_id = key_data.get("user_id", "")
+    key_agent_id = key_data.get("agent_id", "")
+
+    if key_user_id and key_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key user_id mismatch: key bound to '{key_user_id}', but requested '{user_id}'",
+        )
+
+    if key_agent_id and key_agent_id != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key agent_id mismatch: key bound to '{key_agent_id}', but requested '{agent_id}'",
+        )
+
     memory_instance = await get_agent_instance(agent_id)
     try:
         memory_instance.delete(memory_id=memory_id)
@@ -848,12 +1083,41 @@ async def delete_memory(memory_id: str, user_id: str, agent_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/memories", summary="批量删除记忆", dependencies=[Depends(get_api_key)])
+@app.delete("/memories", summary="批量删除记忆")
 async def delete_all_memories(
     user_id: str,
     agent_id: str,
     run_id: Optional[str] = None,
+    key_info: Dict[str, Any] = Depends(get_api_key_with_data),
 ):
+    """
+    根据标识符批量删除记忆。
+
+    **必需参数**: 至少提供 user_id、agent_id 或 run_id 之一。
+
+    **严格绑定**: 如果 API Key 绑定了 user_id/agent_id，则必须与请求参数匹配。
+    """
+    # 验证 API Key 绑定的 user_id/agent_id
+    key_data = key_info["key_data"]
+    key_user_id = key_data.get("user_id", "")
+    key_agent_id = key_data.get("agent_id", "")
+
+    if key_user_id and key_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key user_id mismatch: key bound to '{key_user_id}', but requested '{user_id}'",
+        )
+
+    if key_agent_id and key_agent_id != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key agent_id mismatch: key bound to '{key_agent_id}', but requested '{agent_id}'",
+        )
+        
+    # Removed - now user_id and agent_id are required
+        
+
+    agent_id = agent_id
     """
     根据标识符批量删除记忆。
 
@@ -876,8 +1140,35 @@ async def delete_all_memories(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/reset", summary="重置所有记忆", dependencies=[Depends(get_api_key)])
-async def reset_memory(user_id: str, agent_id: str):
+@app.post("/reset", summary="重置所有记忆")
+async def reset_memory(
+    user_id: str,
+    agent_id: str,
+    key_info: Dict[str, Any] = Depends(get_api_key_with_data),
+):
+    """
+    完全重置指定 Agent 的所有记忆。
+
+    ⚠️ **警告**: 此操作不可逆！
+
+    **严格绑定**: 如果 API Key 绑定了 user_id/agent_id，则必须与请求参数匹配。
+    """
+    # 验证 API Key 绑定的 user_id/agent_id
+    key_data = key_info["key_data"]
+    key_user_id = key_data.get("user_id", "")
+    key_agent_id = key_data.get("agent_id", "")
+
+    if key_user_id and key_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key user_id mismatch: key bound to '{key_user_id}', but requested '{user_id}'",
+        )
+
+    if key_agent_id and key_agent_id != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key agent_id mismatch: key bound to '{key_agent_id}', but requested '{agent_id}'",
+        )
     """
     完全重置指定 Agent 的所有记忆。
 
@@ -901,11 +1192,35 @@ async def reset_memory(user_id: str, agent_id: str):
 # Deduplication Endpoints
 # ============================================================================
 
-@app.get("/deduplicate", summary="查找重复记忆", dependencies=[Depends(get_api_key)])
+@app.get("/deduplicate", summary="查找重复记忆")
 async def find_duplicates(
     agent_id: str,
     user_id: str,
+    key_info: Dict[str, Any] = Depends(get_api_key_with_data),
 ):
+    """
+    查找指定 Agent/User 的重复记忆。
+
+    返回所有具有相同 hash 的记忆组（每组 2 个或更多）。
+
+    **严格绑定**: 如果 API Key 绑定了 user_id/agent_id，则必须与请求参数匹配。
+    """
+    # 验证 API Key 绑定的 user_id/agent_id
+    key_data = key_info["key_data"]
+    key_user_id = key_data.get("user_id", "")
+    key_agent_id = key_data.get("agent_id", "")
+
+    if key_user_id and key_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key user_id mismatch: key bound to '{key_user_id}', but requested '{user_id}'",
+        )
+
+    if key_agent_id and key_agent_id != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key agent_id mismatch: key bound to '{key_agent_id}', but requested '{agent_id}'",
+        )
     """
     查找指定 Agent/User 的重复记忆。
 
@@ -926,12 +1241,42 @@ async def find_duplicates(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/deduplicate", summary="清理重复记忆", dependencies=[Depends(get_api_key)])
+@app.post("/deduplicate", summary="清理重复记忆")
 async def cleanup_duplicates(
     agent_id: str,
     user_id: str,
     dry_run: bool = True,
+    key_info: Dict[str, Any] = Depends(get_api_key_with_data),
 ):
+    """
+    清理重复记忆，只保留每组中最早创建的那条。
+
+    Args:
+        agent_id: Agent ID
+        user_id: User ID (optional)
+        dry_run: 如果为 True（默认），只返回将被删除的记忆，不实际删除
+
+    Returns:
+        删除的记忆数量和详情
+
+    **严格绑定**: 如果 API Key 绑定了 user_id/agent_id，则必须与请求参数匹配。
+    """
+    # 验证 API Key 绑定的 user_id/agent_id
+    key_data = key_info["key_data"]
+    key_user_id = key_data.get("user_id", "")
+    key_agent_id = key_data.get("agent_id", "")
+
+    if key_user_id and key_user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key user_id mismatch: key bound to '{key_user_id}', but requested '{user_id}'",
+        )
+
+    if key_agent_id and key_agent_id != agent_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"API key agent_id mismatch: key bound to '{key_agent_id}', but requested '{agent_id}'",
+        )
     """
     清理重复记忆，只保留每组中最早创建的那条。
 

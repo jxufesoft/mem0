@@ -1,7 +1,7 @@
 # Mem0 Plugin for OpenClaw
 
-[![Version](https://img.shields.io/badge/version-2.1.2-blue.svg)](https://github.com/mem0ai/mem0)
-[![Tests](https://img.shields.io/badge/tests-23%2F23%20passed-brightgreen.svg)](./TEST_REPORT.md)
+[![Version](https://img.shields.io/badge/version-2.4.10-blue.svg)](https://github.com/mem0ai/mem0)
+[![Tests](https://img.shields.io/badge/tests-20%2F20%20passed-brightgreen.svg)](./TEST_REPORT.md)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](./LICENSE)
 
 三层分层记忆系统 for OpenClaw: L0(memory.md) + L1(日期/分类文件) + L2(Mem0 Server 向量搜索)

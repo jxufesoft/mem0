@@ -4,6 +4,33 @@
 
 All notable changes to the Mem0 OpenClaw Plugin.
 
+
+## [2.4.10] - 2026-03-15
+
+### Release Summary
+
+Fix user_id default value for Server mode when not configured.
+
+### Fixed
+
+- **user_id Default Value** - Added default value `"default"` when user_id is not configured in Server mode, fixing "Field required" error
+
+## [2.4.9] - 2026-03-14
+
+### Release Summary
+
+Fix PostgreSQL hostname connection issue in start.sh.
+
+### Fixed
+
+- **PostgreSQL Connection** - Changed hostname from `postgres` to `mem0-prod-postgres-1` for Docker container DNS resolution
+
+## [2.4.8] - 2026-03-14
+
+### Release Summary
+
+Initial release after refactoring.
+
 ## [2.4.7] - 2026-03-12
 
 ### Release Summary

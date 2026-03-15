@@ -2,8 +2,8 @@
 
 ## 版本信息
 
-- **文档版本**: 2.0.0
-- **最后更新**: 2026-03-07
+- **文档版本**: 2.1.0
+- **最后更新**: 2026-03-14
 - **Server 版本**: 2.0.0 (Enhanced)
 
 ---
@@ -163,36 +163,64 @@ services:
 
 ### 4.1 数据目录结构
 
-所有数据保存在 `/home/yhz/mem0-data/`:
+数据存储在 `server/data/` 目录下（相对于项目根目录）:
 
 ```
-/home/yhz/mem0-data/
+server/data/
 ├── postgres/     # 向量数据 (pgvector)
 ├── neo4j/        # 图数据库
 │   ├── data/
 │   ├── logs/
 │   └── import/
-├── redis/        # 缓存/速率限制
-└── history/      # API Keys, 历史记录
+└── redis/        # 缓存/速率限制
 ```
+
+API Keys 存储在: `server/history/api_keys.json` (通过 volume 持久化)
 
 ### 4.2 容器卷映射
 
 | 容器 | 宿主机路径 | 容器路径 | 内容 |
 |------|-----------|----------|------|
-| mem0-postgres | `/home/yhz/mem0-data/postgres` | `/var/lib/postgresql/data` | 向量数据 |
-| mem0-neo4j | `/home/yhz/mem0-data/neo4j/data` | `/data` | 图数据库 |
-| mem0-redis | `/home/yhz/mem0-data/redis` | `/data` | 缓存 |
-| mem0-server | `/home/yhz/mem0-data/history` | `/app/history` | API Keys |
+| mem0-prod-postgres | `server/data/postgres` | `/var/lib/postgresql/data` | 向量数据 (内存) |
+| mem0-prod-neo4j | `server/data/neo4j` | `/data`, `/logs` | 图数据库 |
+| mem0-prod-redis | `server/data/redis` | `/data` | 缓存/速率限制 |
+| mem0-prod-mem0-1 | `server/history` | `/app/history` | API Keys + History DB |
 
-### 4.3 数据备份
+
+### 4.3 存储文件说明
+
+| 文件/目录 | 说明 | 大小估算 |
+|----------|------|---------|
+| `postgres/` | pgvector 向量存储，包含所有记忆数据 | 最大 (随使用增长) |
+| `neo4j/` | 图关系数据，存储实体和关系 | 中等 |
+| `redis/` | 速率限制计数、会话缓存 | 小 (maxmemory=256MB) |
+| `api_keys.json` | API Key 列表（容器内）| 很小 (<1KB) |
+
+### 4.4 数据备份
 
 ```bash
 # 备份 PostgreSQL
-docker exec mem0-postgres pg_dump -U postgres mem0db > backup_$(date +%Y%m%d).sql
+docker exec mem0-prod-postgres-1 pg_dump -U postgres mem0db > backup_$(date +%Y%m%d).sql
 
 # 备份所有数据目录
-tar -czvf mem0-data-backup-$(date +%Y%m%d).tar.gz /home/yhz/mem0-data/
+cd /home/yhz/project/mem0/server
+tar -czvf data-backup-$(date +%Y%m%d).tar.gz data/
+
+# 备份 API Keys (需要在容器内执行)
+docker exec mem0-prod-mem0-1 cat /app/history/api_keys.json > api_keys_backup.json
+```
+
+### 4.5 恢复数据
+
+```bash
+# 恢复 PostgreSQL
+docker exec -i mem0-prod-postgres-1 psql -U postgres mem0db < backup_YYYYMMDD.sql
+
+# 恢复数据目录
+tar -xzvf data-backup-YYYYMMDD.tar.gz
+
+# 恢复 API Keys
+docker exec -i mem0-prod-mem0-1 sh -c 'cat > /app/history/api_keys.json' < api_keys_backup.json
 ```
 
 ---
@@ -842,11 +870,11 @@ redis-server --save 900 1 --save 300 10
 
 | 目录 | 内容 |
 |------|------|
-| `/opt/mem0-data/postgres` | PostgreSQL 数据 |
-| `/opt/mem0-data/neo4j/data` | Neo4j 数据 |
-| `/opt/mem0-data/neo4j/logs` | Neo4j 日志 |
-| `/opt/mem0-data/redis` | Redis 数据 |
-| `/opt/mem0-data/history` | 记忆历史和 API Keys |
+| `server/data/postgres` | PostgreSQL 数据 (pgvector) |
+| `server/data/neo4j` | Neo4j 数据和日志 |
+| `server/data/redis` | Redis 数据 |
+| `server/history` | API Keys 和 History DB (已持久化) |
+
 
 ### C. 备份策略
 

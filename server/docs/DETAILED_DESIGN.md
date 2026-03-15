@@ -2,8 +2,8 @@
 
 ## 版本信息
 
-- **文档版本**: 1.0.0
-- **最后更新**: 2026-03-07
+- **文档版本**: 1.1.0
+- **最后更新**: 2026-03-14
 - **Server 版本**: 2.0.0
 
 ---
@@ -20,6 +20,71 @@
 ---
 
 ## 模块详解
+
+---
+
+## 数据持久化配置
+
+### 存储卷映射
+
+| 容器 | 宿主机路径 | 容器路径 | 内容 |
+|------|-----------|----------|------|
+| mem0-prod-mem0-1 | `server/history` | `/app/history` | API Keys + History DB |
+| mem0-prod-postgres | `server/data/postgres` | `/var/lib/postgresql/data` | 向量数据 |
+| mem0-prod-neo4j | `server/data/neo4j` | `/data`, `/logs` | 图数据库 |
+| mem0-prod-redis | `server/data/redis` | `/data` | 缓存/速率限制 |
+
+### API Keys 存储
+
+API Keys 存储在 `server/history/api_keys.json`，格式如下：
+
+```json
+{
+  "mem0_xxx": {
+    "user_id": "yhz",
+    "agent_id": "mem0clw",
+    "description": "描述",
+    "created_at": 1234567890.0,
+    "revoked": false
+  }
+}
+```
+
+### docker-compose.prod.yaml 配置
+
+```yaml
+services:
+  mem0:
+    volumes:
+      - ./history:/app/history   # API Keys 持久化
+
+  postgres:
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+
+  neo4j:
+    volumes:
+      - ./data/neo4j:/data
+      - ./data/neo4j/logs:/logs
+
+  redis:
+    volumes:
+      - ./data/redis:/data
+```
+
+### 备份与恢复
+
+```bash
+# 备份 API Keys
+cp server/history/api_keys.json api_keys_backup.json
+
+# 备份 PostgreSQL
+docker exec mem0-prod-postgres-1 pg_dump -U postgres mem0db > backup.sql
+
+# 恢复
+docker cp api_keys_backup.json mem0-prod-mem0-1:/app/history/api_keys.json
+```
+
 
 ### 1.1 RedisManager
 

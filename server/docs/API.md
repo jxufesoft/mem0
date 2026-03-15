@@ -29,7 +29,7 @@
 | **协议** | HTTP/1.1, HTTPS |
 | **数据格式** | JSON |
 | **字符编码** | UTF-8 |
-| **认证方式** | X-API-Key Header |
+| **认证方式** | Authorization: Bearer <api_key> |
 | **速率限制** | 200 请求 / 60 秒 |
 
 ### 1.2 交互式文档
@@ -47,7 +47,7 @@
 \`\`\`http
 GET /memories HTTP/1.1
 Host: localhost:8000
-X-API-Key: mem0_your_api_key_here
+Authorization: Bearer mem0_your_api_key_here
 Content-Type: application/json
 \`\`\`
 
@@ -58,7 +58,7 @@ Content-Type: application/json
 \`\`\`http
 POST /admin/keys HTTP/1.1
 Host: localhost:8000
-X-API-Key: your_admin_secret_key
+Authorization: Bearer your_admin_secret_key
 Content-Type: application/json
 \`\`\`
 
@@ -122,7 +122,7 @@ Host: localhost:8000
 **curl 示例**：
 \`\`\`bash
 curl -X POST http://localhost:8000/admin/keys \\
-  -H "X-API-Key: your_admin_secret_key" \\
+  -H "Authorization: Bearer your_admin_secret_key" \\
   -H "Content-Type: application/json" \\
   -d '{
     "agent_id": "my-agent",
@@ -163,7 +163,7 @@ curl -X POST http://localhost:8000/admin/keys \\
 **curl 示例**：
 \`\`\`bash
 curl -X GET http://localhost:8000/admin/keys \\
-  -H "X-API-Key: your_admin_secret_key"
+  -H "Authorization: Bearer your_admin_secret_key"
 \`\`\`
 
 **响应示例**：
@@ -209,7 +209,7 @@ curl -X GET http://localhost:8000/admin/keys \\
 **curl 示例 1：撤销指定 key**
 \`\`\`bash
 curl -X DELETE http://localhost:8000/admin/keys \\
-  -H "X-API-Key: your_admin_secret_key" \\
+  -H "Authorization: Bearer your_admin_secret_key" \\
   -H "Content-Type: application/json" \\
   -d '{
     "api_key": "mem0_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
@@ -220,7 +220,7 @@ curl -X DELETE http://localhost:8000/admin/keys \\
 \`\`\`bash
 # 先列出所有 keys
 KEYS=$(curl -s -X GET http://localhost:8000/admin/keys \\
-  -H "X-API-Key: your_admin_secret_key" | jq -r '.keys[] | .key_prefix')
+  -H "Authorization: Bearer your_admin_secret_key" | jq -r '.keys[] | .key_prefix')
 
 # 显示并选择要撤销的 key
 echo "Available keys:"
@@ -231,7 +231,7 @@ read KEY_PREFIX
 
 # 撤销选中的 key
 curl -X DELETE http://localhost:8000/admin/keys \\
-  -H "X-API-Key: your_admin_secret_key" \\
+  -H "Authorization: Bearer your_admin_secret_key" \\
   -H "Content-Type: application/json" \\
   -d "{
     \"api_key\": \"$KEY_PREFIX\"
@@ -259,7 +259,7 @@ curl -X DELETE http://localhost:8000/admin/keys \\
 \`\`\`bash
 # 撤销后，该 API Key 将无法使用
 curl -X POST http://localhost:8000/memories \\
-  -H "X-API-Key: mem0_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6" \\
+  -H "Authorization: Bearer mem0_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6" \\
   -H "Content-Type: application/json" \\
   -d '{
     "messages": [{"role": "user", "content": "test"}]
@@ -353,7 +353,7 @@ curl -X POST http://localhost:8000/memories \\
 \`\`\`http
 GET /memories?user_id=user-123&agent_id=my-agent HTTP/1.1
 Host: localhost:8000
-X-API-Key: mem0_your_api_key
+Authorization: Bearer mem0_your_api_key
 \`\`\`
 
 **响应**：
@@ -393,7 +393,7 @@ X-API-Key: mem0_your_api_key
 \`\`\`http
 GET /memories/uuid-1?agent_id=my-agent HTTP/1.1
 Host: localhost:8000
-X-API-Key: mem0_your_api_key
+Authorization: Bearer mem0_your_api_key
 \`\`\`
 
 **响应**：
@@ -544,7 +544,7 @@ X-API-Key: mem0_your_api_key
 \`\`\`http
 DELETE /memories/uuid-1?agent_id=my-agent HTTP/1.1
 Host: localhost:8000
-X-API-Key: mem0_your_api_key
+Authorization: Bearer mem0_your_api_key
 \`\`\`
 
 **响应**：
@@ -573,7 +573,7 @@ X-API-Key: mem0_your_api_key
 \`\`\`http
 DELETE /memories?user_id=user-123&agent_id=my-agent HTTP/1.1
 Host: localhost:8000
-X-API-Key: mem0_your_api_key
+Authorization: Bearer mem0_your_api_key
 \`\`\`
 
 **响应**：
@@ -697,7 +697,7 @@ interface SearchResponse {
 |--------|------|------|
 | **200 OK** | 成功 | 请求成功处理 |
 | **400 Bad Request** | 请求错误 | 参数缺失或无效 |
-| **401 Unauthorized** | 未认证 | 缺少 X-API-Key |
+| **401 Unauthorized** | 未认证 | 缺少 Authorization header |
 | **403 Forbidden** | 禁止访问 | API Key 无效或速率超限 |
 | **404 Not Found** | 资源不存在 | 记忆 ID 不存在 |
 | **429 Too Many Requests** | 速率超限 | 超过速率限制 |
@@ -714,7 +714,7 @@ interface SearchResponse {
 
 | 错误 | HTTP 状态 | 说明 |
 |------|-----------|------|
-| "Missing X-API-Key header" | 401 | 请求缺少认证头 |
+| "Missing Authorization header" | 401 | 请求缺少认证头 |
 | "Invalid API key or rate limit exceeded" | 403 | API Key 无效或撤销 |
 | "At least one identifier (user_id, agent_id, run_id) is required" | 400 | 缺少必需的标识符 |
 | "API key not found" | 404 | API Key 不存在 |
@@ -731,7 +731,7 @@ interface SearchResponse {
 \`\`\`bash
 # 生成新的 API Key
 curl -X POST http://localhost:8000/admin/keys \\
-  -H "X-API-Key: your_admin_secret_key" \\
+  -H "Authorization: Bearer your_admin_secret_key" \\
   -H "Content-Type: application/json" \\
   -d '{
     "agent_id": "production-agent",
@@ -740,11 +740,11 @@ curl -X POST http://localhost:8000/admin/keys \\
 
 # 列出所有 API Keys
 curl -X GET http://localhost:8000/admin/keys \\
-  -H "X-API-Key: your_admin_secret_key"
+  -H "Authorization: Bearer your_admin_secret_key"
 
 # 撤销指定的 API Key
 curl -X DELETE http://localhost:8000/admin/keys \\
-  -H "X-API-Key: your_admin_secret_key" \\
+  -H "Authorization: Bearer your_admin_secret_key" \\
   -H "Content-Type: application/json" \\
   -d '{
     "api_key": "mem0_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
@@ -756,7 +756,7 @@ curl -X DELETE http://localhost:8000/admin/keys \\
 \`\`\`bash
 # 添加记忆
 curl -X POST http://localhost:8000/memories \\
-  -H "X-API-Key: mem0_your_api_key" \\
+  -H "Authorization: Bearer mem0_your_api_key" \\
   -H "Content-Type: application/json" \\
   -d '{
     "messages": [
@@ -768,7 +768,7 @@ curl -X POST http://localhost:8000/memories \\
 
 # 搜索记忆
 curl -X POST http://localhost:8000/search \\
-  -H "X-API-Key: mem0_your_api_key \\
+  -H "Authorization: Bearer mem0_your_api_key \\
   -H "Content-Type: application/json" \\
   -d '{
     "query": "What do you know about John?",
@@ -778,11 +778,11 @@ curl -X POST http://localhost:8000/search \\
 
 # 获取所有记忆
 curl -X GET "http://localhost:8000/memories?user_id=user-123&agent_id=my-agent" \\
-  -H "X-API-Key: mem0_your_api_key"
+  -H "Authorization: Bearer mem0_your_api_key"
 
 # 更新记忆
 curl -X PUT "http://localhost:8000/memories/uuid-1?agent_id=my-agent" \\
-  -H "X-API-Key: mem0_your_key \\
+  -H "Authorization: Bearer mem0_your_key \\
   -H "Content-Type: application/json" \\
   -d '{
     "memory": "Updated memory content"
@@ -790,15 +790,15 @@ curl -X PUT "http://localhost:8000/memories/uuid-1?agent_id=my-agent" \\
 
 # 删除记忆
 curl -X DELETE "http://localhost:8000/memories/uuid-1?agent_id=my-agent" \\
-  -H "X-API-Key: mem0_your_api_key"
+  -H "Authorization: Bearer mem0_your_api_key"
 
 # 删除所有记忆
 curl -X DELETE "http://localhost:8000/memories?user_id=user-123&agent_id=my-agent" \\
-  -H "X-API-Key: mem0_your_api_key"
+  -H "Authorization: Bearer mem0_your_api_key"
 
 # 重置所有记忆
 curl -X POST "http://localhost:8000/reset?agent_id=my-agent \\
-  -H "X-API-Key: mem0_your_api_key"
+  -H "Authorization: Bearer mem0_your_api_key"
 
 # 健康检查
 curl -X GET http://localhost:8000/health
@@ -969,7 +969,7 @@ case \$choice in
         read -p "输入 agent_id: " agent_id
         read -p "输入描述: " description
         curl -X POST "\$BASE_URL/admin/keys" \\
-            -H "X-API-Key: \$ADMIN_KEY \\
+            -H "Authorization: Bearer \$ADMIN_KEY \\
             -H "Content-Type: application/json" \\
             -d "{\\"agent_id\\": \\"\$agent_id\\\", \\"description\\\": \\"\$description\\\" \\"}" \\
             | jq -r '.'
@@ -977,13 +977,13 @@ case \$choice in
     2)
         echo "列出所有 API Keys"
         curl -X GET "\$BASE_URL/admin/keys" \\
-            -H "X-API-Key: \$ADMIN_KEY" | jq -r '.keys[] | "\\(.agent_id) - \\(.description) - \\(.key_prefix) (已撤销: \\(.revoked))"'
+            -H "Authorization: Bearer \$ADMIN_KEY" | jq -r '.keys[] | "\\(.agent_id) - \\(.description) - \\(.key_prefix) (已撤销: \\(.revoked))"'
         ;;
     3)
         echo "撤销 API Key"
         # 列出所有 keys 供选择
         curl -s -X GET "\$BASE_URL/admin/keys" \\
-            -H "X-API-Key: \$ADMIN_KEY" | jq -r '.keys[] | \\(.key_prefix) - \\(.agent_id)"' | nl
+            -H "Authorization: Bearer \$ADMIN_KEY" | jq -r '.keys[] | \\(.key_prefix) - \\(.agent_id)"' | nl
         read -p "输入要撤销的 key_prefix: " key_to_revoke
         
         # 构造完整 key（实际使用时需要保存完整 key）
@@ -991,7 +991,7 @@ case \$choice in
         read -p "输入完整 API Key 要撤销: " full_key_to_revoke
         
         curl -X DELETE "\$BASE_URL/admin/keys" \\
-            -H "X-API-Key: \$ADMIN_KEY \\
+            -H "Authorization: Bearer \$ADMIN_KEY \\
             -H "Content-Type: application/json" \\
             -d "{\\"api_key\\": \\"\$full_key_to_revoke\\"" \\
             | jq -r '.message'
@@ -1001,7 +1001,7 @@ case \$choice in
         read -p "输入 API Key: " test_api_key
         echo "测试搜索..."
         curl -X POST "\$BASE_URL/search" \\
-            -H "X-API-Key: \$test_api_key \\
+            -H "Authorization: Bearer \$test_api_key \\
             -H "Content-Type: application/json" \\
             -d "{\\"query\\": \\"test\\", \\"user_id\\\": \\"test\\" }" \\
             | jq -r '.results[] | .memory'

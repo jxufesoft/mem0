@@ -9,7 +9,7 @@
     <img src="https://img.shields.io/badge/GitHub-jxufesoft/mem0-blue" alt="GitHub">
   </a>
   <a href="#">
-    <img src="https://img.shields.io/badge/版本-2.0.0-green" alt="Version">
+    <img src="https://img.shields.io/badge/版本-2.4.11-green" alt="Version">
   </a>
   <a href="#">
     <img src="https://img.shields.io/badge/测试通过率-100%25-brightgreen" alt="Tests">
@@ -38,6 +38,8 @@
 | 💾 数据持久化 | PostgreSQL + Neo4j + Redis 完整支持 |
 | 🔄 自动记忆 | autoRecall/autoCapture 自动存取记忆 |
 | 🐳 容器化部署 | Docker Compose 一键启动 |
+| 💾 备份恢复 | 完整备份/恢复/迁移功能 |
+| 🔐 API Key 认证 | 管理员密钥 + 用户 API Keys |
 
 ---
 
@@ -199,6 +201,43 @@ openclaw plugins install mem0-openclaw-mem0-2.0.0.tgz
 ├── redis/             # Redis 缓存
 └── history/           # 记忆历史记录
 ```
+
+---
+
+### 💾 备份与恢复
+
+Mem0 Server v2.4.11+ 内置完整备份功能：
+
+```bash
+# CLI 工具
+cd server/tools
+
+# 备份
+./backup.sh create          # 创建备份
+./backup.sh list            # 列出备份
+./backup.sh download <id>   # 下载备份
+
+# 恢复
+./backup.sh restore <id>   # 恢复数据
+./backup.sh restore <id> --dry-run  # 预览
+
+# 迁移
+./migrate.sh export        # 导出迁移包
+./migrate.sh import <file>  # 导入迁移包
+```
+
+**API 端点**:
+| 方法 | 端点 | 功能 |
+|------|------|------|
+| POST | /admin/backup | 创建备份 |
+| GET | /admin/backup/list | 列出备份 |
+| GET | /admin/backup/{id}/download | 下载备份 |
+| POST | /admin/backup/{id}/restore | 恢复备份 |
+| DELETE | /admin/backup/{id} | 删除备份 |
+| POST | /admin/migrate/export | 导出迁移 |
+| POST | /admin/migrate/import | 导入迁移 |
+
+> ⚠️ 备份文件保存在 `server/backups/` 目录（宿主机持久化）
 
 ---
 

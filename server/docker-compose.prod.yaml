@@ -13,6 +13,7 @@ services:
     networks:
       - mem0_network
     volumes:
+      - ./backups:/app/backups
       - ./history:/app/history
     depends_on:
       postgres:
@@ -42,6 +43,7 @@ services:
       timeout: 5s
       retries: 5
     volumes:
+      - ./backups:/app/backups
       - ./data/postgres:/var/lib/postgresql/data
     ports:
       - "8432:5432"
@@ -61,6 +63,7 @@ services:
       - "8474:7474"
       - "8687:7687"
     volumes:
+      - ./backups:/app/backups
       - ./data/neo4j:/data
       - ./data/neo4j/logs:/logs
     environment:
@@ -85,6 +88,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
+      - ./backups:/app/backups
       - ./data/redis:/data
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
 

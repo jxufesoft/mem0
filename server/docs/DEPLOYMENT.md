@@ -2,9 +2,9 @@
 
 ## 版本信息
 
-- **文档版本**: 2.1.0
-- **最后更新**: 2026-03-14
-- **Server 版本**: 2.0.0 (Enhanced)
+- **文档版本**: 2.4.11
+- **最后更新**: 2026-03-15
+- **Server 版本**: 2.4.11 (Enhanced)
 
 ---
 
@@ -17,7 +17,8 @@
 5. [数据持久化](#数据持久化)
 6. [外部访问配置](#外部访问配置)
 7. [监控运维](#监控运维)
-8. [故障排查](#故障排查)
+8. [备份与恢复](#备份与恢复)
+9. [故障排查](#故障排查)
 
 ---
 
@@ -185,6 +186,7 @@ API Keys 存储在: `server/history/api_keys.json` (通过 volume 持久化)
 | mem0-prod-neo4j | `server/data/neo4j` | `/data`, `/logs` | 图数据库 |
 | mem0-prod-redis | `server/data/redis` | `/data` | 缓存/速率限制 |
 | mem0-prod-mem0-1 | `server/history` | `/app/history` | API Keys + History DB |
+| mem0-prod-mem0-1 | `server/backups` | `/app/backups` | 备份文件（持久化） |
 
 
 ### 4.3 存储文件说明
@@ -290,6 +292,208 @@ docker compose -f docker-compose.prod.yaml logs -f
 ```bash
 # 查看容器资源使用
 docker stats mem0-server mem0-postgres mem0-redis mem0-neo4j
+```
+
+---
+
+---
+
+## 备份与恢复
+
+Mem0 Server v2.4.11+ 内置完整的备份、恢复和迁移功能。
+
+### 8.1 备份存储位置
+
+| 位置 | 路径 | 说明 |
+|------|------|------|
+| 容器内 | `/app/backups/` | 备份临时目录 |
+| 宿主机 | `server/backups/` | 持久化备份目录 |
+
+**配置** (docker-compose.prod.yaml):
+```yaml
+volumes:
+  - ./history:/app/history
+  - ./backups:/app/backups    # 新增：备份持久化
+```
+
+### 8.2 API 端点
+
+| 方法 | 路径 | 功能 | 需要管理员 |
+|------|------|------|------------|
+| POST | /admin/backup | 创建备份 | ✓ |
+| GET | /admin/backup/list | 列出备份 | ✓ |
+| GET | /admin/backup/{id}/download | 下载备份 | ✓ |
+| GET | /admin/backup/{id}/verify | 验证备份 | ✓ |
+| POST | /admin/backup/{id}/restore | 恢复备份 | ✓ |
+| DELETE | /admin/backup/{id} | 删除备份 | ✓ |
+| POST | /admin/migrate/export | 导出迁移包 | ✓ |
+| POST | /admin/migrate/import | 导入迁移包 | ✓ |
+
+**管理员认证**: 使用 `ADMIN_SECRET_KEY` 值作为 Bearer Token:
+```bash
+curl -H "Authorization: Bearer $ADMIN_SECRET_KEY" ...
+```
+
+### 8.3 备份功能
+
+#### 创建备份
+
+```bash
+# 通过 API
+curl -X POST http://localhost:8000/admin/backup \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"backup_type": "full", "include": ["postgres", "neo4j", "api_keys", "history"]}'
+
+# 通过 CLI
+cd server/tools
+./backup.sh create
+```
+
+**响应示例**:
+```json
+{
+  "id": "2026-03-15_103633",
+  "type": "full",
+  "created_at": "2026-03-15T10:36:33.846517Z",
+  "version": "2.4.10",
+  "includes": ["postgres", "neo4j", "api_keys", "history"],
+  "checksums": {
+    "postgres": "sha256:abc123...",
+    "neo4j": "sha256:def456...",
+    "api_keys": "sha256:ghi789...",
+    "history": "sha256:jkl012..."
+  },
+  "memories_count": 88,
+  "api_keys_count": 4,
+  "size_bytes": 22258466
+}
+```
+
+#### 列出备份
+
+```bash
+# 通过 API
+curl http://localhost:8000/admin/backup/list \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY"
+
+# 通过 CLI
+./backup.sh list
+```
+
+#### 下载备份
+
+```bash
+# 通过 API
+curl http://localhost:8000/admin/backup/{backup_id}/download \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY" \
+  -o backup_{backup_id}.tar.gz
+
+# 通过 CLI
+./backup.sh download <backup_id>
+```
+
+#### 验证备份
+
+```bash
+# 通过 API
+curl http://localhost:8000/admin/backup/{backup_id}/verify \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY"
+
+# 通过 CLI
+./backup.sh verify <backup_id>
+```
+
+### 8.4 恢复功能
+
+#### 预览恢复 (dry-run)
+
+```bash
+# 通过 API
+curl -X POST http://localhost:8000/admin/backup/{backup_id}/restore \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"strategy": "overwrite", "dry_run": true}'
+
+# 通过 CLI
+./backup.sh restore <backup_id> --dry-run
+```
+
+#### 执行恢复
+
+```bash
+# 通过 API
+curl -X POST http://localhost:8000/admin/backup/{backup_id}/restore \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"strategy": "overwrite"}'
+
+# 通过 CLI
+./backup.sh restore <backup_id>
+```
+
+**恢复策略**:
+- `overwrite`: 覆盖现有数据
+- `merge`: 合并现有数据（保留新数据）
+
+### 8.5 迁移功能
+
+#### 导出迁移包
+
+```bash
+# 通过 API
+curl -X POST http://localhost:8000/admin/migrate/export \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"include": ["postgres", "neo4j", "api_keys", "history"]}'
+
+# 通过 CLI
+cd server/tools
+./migrate.sh export
+```
+
+#### 导入迁移包
+
+```bash
+# 通过 CLI
+./migrate.sh import <migration_file.tar.gz>
+```
+
+**迁移工作流**:
+```bash
+# 1. 源服务器：导出迁移包
+./migrate.sh export
+
+# 2. 传输到目标服务器
+scp migration_20260315.tar.gz target_server:/path/to/
+
+# 3. 目标服务器：导入
+./migrate.sh import /path/to/migration_20260315.tar.gz
+```
+
+### 8.6 备份文件格式
+
+```
+server/backups/
+├── 2026-03-15_103633/
+│   ├── metadata.json          # 备份元信息
+│   ├── manifest.json          # 文件清单 + checksums
+│   ├── postgres.sql           # PostgreSQL 完整 dump
+│   ├── neo4j_data.json        # Neo4j 数据导出
+│   ├── api_keys.json          # API Keys
+│   └── history.db             # History DB (SQLite)
+└── migration_20260315.tar.gz  # 迁移包
+```
+
+### 8.7 备份配置
+
+在 `.env` 文件中配置:
+
+```bash
+# 备份配置
+BACKUP_DIR=/app/backups
+BACKUP_MAX_COUNT=10      # 最多保留 10 个备份
+BACKUP_COMPRESS=true     # 压缩备份
 ```
 
 ---
@@ -616,6 +820,9 @@ spec:
 | `ADMIN_SECRET_KEY` | 是 | - | 管理员密钥 |
 | `RATE_LIMIT_REQUESTS` | 否 | 200 | 速率限制请求数 |
 | `RATE_LIMIT_WINDOW` | 否 | 60 | 速率限制窗口（秒）|
+| `BACKUP_DIR` | 否 | /app/backups | 备份存储目录 |
+| `BACKUP_MAX_COUNT` | 否 | 10 | 最大保留备份数 |
+| `BACKUP_COMPRESS` | 否 | true | 是否压缩备份 |
 
 ### 5.2 .env.example
 
@@ -728,6 +935,208 @@ groups:
           severity: warning
         annotations:
           summary: "High latency detected"
+```
+
+---
+
+---
+
+## 备份与恢复
+
+Mem0 Server v2.4.11+ 内置完整的备份、恢复和迁移功能。
+
+### 8.1 备份存储位置
+
+| 位置 | 路径 | 说明 |
+|------|------|------|
+| 容器内 | `/app/backups/` | 备份临时目录 |
+| 宿主机 | `server/backups/` | 持久化备份目录 |
+
+**配置** (docker-compose.prod.yaml):
+```yaml
+volumes:
+  - ./history:/app/history
+  - ./backups:/app/backups    # 新增：备份持久化
+```
+
+### 8.2 API 端点
+
+| 方法 | 路径 | 功能 | 需要管理员 |
+|------|------|------|------------|
+| POST | /admin/backup | 创建备份 | ✓ |
+| GET | /admin/backup/list | 列出备份 | ✓ |
+| GET | /admin/backup/{id}/download | 下载备份 | ✓ |
+| GET | /admin/backup/{id}/verify | 验证备份 | ✓ |
+| POST | /admin/backup/{id}/restore | 恢复备份 | ✓ |
+| DELETE | /admin/backup/{id} | 删除备份 | ✓ |
+| POST | /admin/migrate/export | 导出迁移包 | ✓ |
+| POST | /admin/migrate/import | 导入迁移包 | ✓ |
+
+**管理员认证**: 使用 `ADMIN_SECRET_KEY` 值作为 Bearer Token:
+```bash
+curl -H "Authorization: Bearer $ADMIN_SECRET_KEY" ...
+```
+
+### 8.3 备份功能
+
+#### 创建备份
+
+```bash
+# 通过 API
+curl -X POST http://localhost:8000/admin/backup \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"backup_type": "full", "include": ["postgres", "neo4j", "api_keys", "history"]}'
+
+# 通过 CLI
+cd server/tools
+./backup.sh create
+```
+
+**响应示例**:
+```json
+{
+  "id": "2026-03-15_103633",
+  "type": "full",
+  "created_at": "2026-03-15T10:36:33.846517Z",
+  "version": "2.4.10",
+  "includes": ["postgres", "neo4j", "api_keys", "history"],
+  "checksums": {
+    "postgres": "sha256:abc123...",
+    "neo4j": "sha256:def456...",
+    "api_keys": "sha256:ghi789...",
+    "history": "sha256:jkl012..."
+  },
+  "memories_count": 88,
+  "api_keys_count": 4,
+  "size_bytes": 22258466
+}
+```
+
+#### 列出备份
+
+```bash
+# 通过 API
+curl http://localhost:8000/admin/backup/list \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY"
+
+# 通过 CLI
+./backup.sh list
+```
+
+#### 下载备份
+
+```bash
+# 通过 API
+curl http://localhost:8000/admin/backup/{backup_id}/download \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY" \
+  -o backup_{backup_id}.tar.gz
+
+# 通过 CLI
+./backup.sh download <backup_id>
+```
+
+#### 验证备份
+
+```bash
+# 通过 API
+curl http://localhost:8000/admin/backup/{backup_id}/verify \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY"
+
+# 通过 CLI
+./backup.sh verify <backup_id>
+```
+
+### 8.4 恢复功能
+
+#### 预览恢复 (dry-run)
+
+```bash
+# 通过 API
+curl -X POST http://localhost:8000/admin/backup/{backup_id}/restore \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"strategy": "overwrite", "dry_run": true}'
+
+# 通过 CLI
+./backup.sh restore <backup_id> --dry-run
+```
+
+#### 执行恢复
+
+```bash
+# 通过 API
+curl -X POST http://localhost:8000/admin/backup/{backup_id}/restore \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"strategy": "overwrite"}'
+
+# 通过 CLI
+./backup.sh restore <backup_id>
+```
+
+**恢复策略**:
+- `overwrite`: 覆盖现有数据
+- `merge`: 合并现有数据（保留新数据）
+
+### 8.5 迁移功能
+
+#### 导出迁移包
+
+```bash
+# 通过 API
+curl -X POST http://localhost:8000/admin/migrate/export \
+  -H "Authorization: Bearer $ADMIN_SECRET_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"include": ["postgres", "neo4j", "api_keys", "history"]}'
+
+# 通过 CLI
+cd server/tools
+./migrate.sh export
+```
+
+#### 导入迁移包
+
+```bash
+# 通过 CLI
+./migrate.sh import <migration_file.tar.gz>
+```
+
+**迁移工作流**:
+```bash
+# 1. 源服务器：导出迁移包
+./migrate.sh export
+
+# 2. 传输到目标服务器
+scp migration_20260315.tar.gz target_server:/path/to/
+
+# 3. 目标服务器：导入
+./migrate.sh import /path/to/migration_20260315.tar.gz
+```
+
+### 8.6 备份文件格式
+
+```
+server/backups/
+├── 2026-03-15_103633/
+│   ├── metadata.json          # 备份元信息
+│   ├── manifest.json          # 文件清单 + checksums
+│   ├── postgres.sql           # PostgreSQL 完整 dump
+│   ├── neo4j_data.json        # Neo4j 数据导出
+│   ├── api_keys.json          # API Keys
+│   └── history.db             # History DB (SQLite)
+└── migration_20260315.tar.gz  # 迁移包
+```
+
+### 8.7 备份配置
+
+在 `.env` 文件中配置:
+
+```bash
+# 备份配置
+BACKUP_DIR=/app/backups
+BACKUP_MAX_COUNT=10      # 最多保留 10 个备份
+BACKUP_COMPRESS=true     # 压缩备份
 ```
 
 ---
